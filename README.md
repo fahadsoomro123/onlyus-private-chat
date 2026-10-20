@@ -1,6 +1,6 @@
 # Only Us
 
-A simple private two-device voice and chat app. The PC version runs on the home laptop; the Android APK runs on Fahad's phone.
+A simple private two-device voice and chat app. The Windows desktop app runs on the home laptop; the Android APK runs on Fahad's phone.
 
 ## Windows desktop app
 Build the Windows installer with `npm install` then `npm run desktop:build`. The installer is created under `dist/desktop/`. The installed app runs its own local UI, starts with Windows by default, and stays in the system tray when its window is closed. Use **Exit Only Us** from the tray menu to quit it completely. The desktop app uses a fixed loopback origin so the selected role and local chat history persist across launches.
@@ -13,10 +13,10 @@ Build the Windows installer with `npm install` then `npm run desktop:build`. The
 ## Start on Android
 1. Install `OnlyUs.apk` and open Only Us.
 2. Choose **Fahad** once; allow microphone and notification permissions.
-3. Leave the **Only Us is active** notification visible. Press Home or lock the screen to keep it running in the background.
-4. Do not force-stop or swipe Only Us away from Recents when you need to be reachable. After a phone reboot, open Only Us again.
+3. Leave the **Only Us is active** notification visible. Approve the **unrestricted battery use** prompt so battery optimization is less likely to suspend signaling.
+4. The foreground service is designed to keep the connection active after screen-off and a Recents swipe. If Android or the phone manufacturer still kills the process, reopen Only Us. After a phone reboot, open Only Us again.
 
-Android keeps the signaling connection in a foreground service and posts a native incoming-call notification. Battery-saver/OEM restrictions can still interrupt background networking; force-stop is an explicit stop.
+Incoming calls use the phone's actual ringtone volume plus a native call notification. Battery-saver/OEM restrictions can still interrupt background networking; Android's explicit **Force stop** always stops the app.
 
 ## GitHub Pages desktop version
 The hosted browser version is published from `public/` with GitHub Pages. The hosted copy intentionally does not include `pair-config.json` or the private pairing key. On the home laptop, enter the 48-character key from `pair-secret.private` once in the hosted setup panel, then choose **Wife**. The key is saved only in that browser's local storage; it is not uploaded to GitHub. The Android app continues to use its private bundled configuration and should be opened as **Fahad**.

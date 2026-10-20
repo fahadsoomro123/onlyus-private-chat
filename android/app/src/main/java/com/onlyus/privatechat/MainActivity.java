@@ -2,6 +2,7 @@ package com.onlyus.privatechat;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -9,6 +10,8 @@ import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.PowerManager;
+import android.provider.Settings;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewParent;
@@ -109,6 +112,27 @@ public final class MainActivity extends Activity {
         if (!restoredRetainedWebView) {
             webView.loadUrl("https://" + ASSET_HOST + "/assets/index.html");
         }
+        webView.postDelayed(this::requestBackgroundCallPermission, 1400);
+    }
+
+    private void requestBackgroundCallPermission() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return;
+        PowerManager power = (PowerManager) getSystemService(POWER_SERVICE);
+        if (power == null || power.isIgnoringBatteryOptimizations(getPackageName())) return;
+        new AlertDialog.Builder(this)
+            .setTitle("Keep Only Us available")
+            .setMessage("Allow unrestricted battery use so Only Us can keep its private connection active while the screen is off. This uses extra battery.")
+            .setPositiveButton("Allow", (dialog, which) -> {
+                try {
+                    Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                        Uri.parse("package:" + getPackageName()));
+                    startActivity(intent);
+                } catch (Exception error) {
+                    startActivity(new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS));
+                }
+            })
+            .setNegativeButton("Later", null)
+            .show();
     }
 
     private WebResourceResponse openBundledAsset(String urlPath) {
