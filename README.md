@@ -11,9 +11,12 @@ Build the Windows installer with `npm install` then `npm run desktop:build`. The
 3. Keep Only Us running in the system tray while you want to receive calls/messages.
 
 ## Start on Android
-1. Install OnlyUs.apk.
-2. Open it and choose **Fahad** once.
-3. Keep the app open while you want to receive calls.
+1. Install `OnlyUs.apk` and open Only Us.
+2. Choose **Fahad** once; allow microphone and notification permissions.
+3. Leave the **Only Us is active** notification visible. Press Home or lock the screen to keep it running in the background.
+4. Do not force-stop or swipe Only Us away from Recents when you need to be reachable. After a phone reboot, open Only Us again.
+
+Android keeps the signaling connection in a foreground service and posts a native incoming-call notification. Battery-saver/OEM restrictions can still interrupt background networking; force-stop is an explicit stop.
 
 ## GitHub Pages desktop version
 The hosted browser version is published from `public/` with GitHub Pages. The hosted copy intentionally does not include `pair-config.json` or the private pairing key. On the home laptop, enter the 48-character key from `pair-secret.private` once in the hosted setup panel, then choose **Wife**. The key is saved only in that browser's local storage; it is not uploaded to GitHub. The Android app continues to use its private bundled configuration and should be opened as **Fahad**.

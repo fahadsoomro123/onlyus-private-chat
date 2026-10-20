@@ -1,6 +1,6 @@
 {
   "name": "only-us-private-chat",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
   "description": "Private voice and chat for two devices",
   "main": "desktop/main.cjs",
@@ -26,6 +26,7 @@
     },
     "files": [
       "desktop/main.cjs",
+      "desktop/preload.cjs",
       "package.json"
     ],
     "extraResources": [

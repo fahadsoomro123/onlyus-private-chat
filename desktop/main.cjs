@@ -1,9 +1,11 @@
 'use strict';
 
-const { app, BrowserWindow, Tray, Menu, nativeImage, session, shell } = require('electron');
+const { app, BrowserWindow, Tray, Menu, nativeImage, session, shell, ipcMain, Notification, powerSaveBlocker, powerMonitor } = require('electron');
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
+
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) app.quit();
@@ -13,6 +15,8 @@ let tray = null;
 let server = null;
 let appUrl = 'http://127.0.0.1:4178';
 let preferences = { startWithWindows: true };
+let incomingNotification = null;
+let powerBlockerId = null;
 let allowQuit = false;
 
 const MIME = {
@@ -133,7 +137,8 @@ async function createWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      sandbox: true
+      sandbox: true,
+      preload: path.join(__dirname, 'preload.cjs')
     }
   });
 
@@ -151,6 +156,23 @@ async function createWindow() {
   });
 
   await win.loadURL(appUrl);
+
+  // The installed laptop build is intended to belong to the Wife device.
+  // On first run, auto-select Wife only after the local private config is loaded.
+  await win.webContents.executeJavaScript(`(async () => {
+    if (localStorage.getItem('onlyus.profile.v1')) return 'profile-exists';
+    for (let i = 0; i < 80; i += 1) {
+      const setup = document.querySelector('#pairSetup');
+      const wife = document.querySelector('[data-role="wife"]');
+      if (setup && setup.hidden && wife && window.Peer && typeof settings !== 'undefined' && settings && settings.roomKey) {
+        wife.click();
+        return 'wife-started';
+      }
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    return 'config-not-ready';
+  })()`).catch(error => console.error('Only Us first-run setup failed:', error.message));
+
   const hiddenLaunch = process.argv.includes('--hidden');
   if (!hiddenLaunch) win.show();
 }
@@ -161,6 +183,21 @@ if (!gotLock) {
   app.whenReady().then(() => {
     preferences = loadPreferences();
     setStartup(preferences.startWithWindows);
+
+    // Keep the call-signaling app alive while the display is off.
+    // The monitor may turn off; Windows itself must not enter sleep.
+    try {
+      powerBlockerId = powerSaveBlocker.start('prevent-app-suspension');
+    } catch (error) {
+      console.error('Only Us power-save blocker failed:', error.message);
+    }
+    powerMonitor.on('resume', () => {
+      if (win && !win.isDestroyed()) {
+        win.webContents.executeJavaScript(
+          "if (typeof peer !== 'undefined' && peer && !peer.destroyed) { try { peer.reconnect(); } catch {} }"
+        ).catch(() => {});
+      }
+    });
     const originAllowed = origin => {
       try { return new URL(origin).origin === appUrl; } catch { return false; }
     };
@@ -170,6 +207,30 @@ if (!gotLock) {
         && details.mediaTypes.includes('audio')
         && !details.mediaTypes.includes('video');
       callback(Boolean(allowedOrigin && permission === 'media' && audioOnly));
+    });
+
+    ipcMain.on('onlyus:incoming-call', event => {
+      if (!event.sender.getURL().startsWith(appUrl)) return;
+      if (win && !win.isDestroyed()) win.flashFrame(true);
+      if (Notification.isSupported()) {
+        if (incomingNotification) incomingNotification.close();
+        incomingNotification = new Notification({
+          title: 'Only Us',
+          body: 'Incoming voice call from your partner',
+          silent: false
+        });
+        incomingNotification.on('click', showWindow);
+        incomingNotification.show();
+      }
+    });
+
+    ipcMain.on('onlyus:call-ended', event => {
+      if (!event.sender.getURL().startsWith(appUrl)) return;
+      if (win && !win.isDestroyed()) win.flashFrame(false);
+      if (incomingNotification) {
+        incomingNotification.close();
+        incomingNotification = null;
+      }
     });
 
     createStaticServer();
@@ -191,6 +252,10 @@ if (!gotLock) {
   app.on('activate', showWindow);
   app.on('before-quit', () => {
     allowQuit = true;
+    if (powerBlockerId !== null) {
+      try { powerSaveBlocker.stop(powerBlockerId); } catch {}
+      powerBlockerId = null;
+    }
     if (tray) { tray.destroy(); tray = null; }
     if (server) { try { server.close(); } catch {} }
   });

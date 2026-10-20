@@ -2,13 +2,18 @@ package com.onlyus.privatechat;
 
 import android.Manifest;
 import android.app.Activity;
+import android.content.Context;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.view.View;
+import android.view.ViewGroup;
+import android.view.ViewParent;
 import android.view.Window;
+import android.webkit.JavascriptInterface;
 import android.webkit.PermissionRequest;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
@@ -27,12 +32,19 @@ import java.util.Map;
 public final class MainActivity extends Activity {
     private static final int REQUEST_AUDIO = 7214;
     private static final String ASSET_HOST = "appassets.androidplatform.net";
+    private static WebView retainedWebView;
     private WebView webView;
+    private boolean restoredRetainedWebView;
     private PermissionRequest pendingAudioRequest;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        OnlyUsService.start(this);
+        if (Build.VERSION.SDK_INT >= 33
+            && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 7215);
+        }
         Window window = getWindow();
         window.setStatusBarColor(Color.rgb(246, 248, 252));
         window.setNavigationBarColor(Color.rgb(246, 248, 252));
@@ -40,7 +52,16 @@ public final class MainActivity extends Activity {
             window.getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
         }
 
-        webView = new WebView(this);
+        synchronized (MainActivity.class) {
+            if (retainedWebView != null) {
+                webView = retainedWebView;
+                retainedWebView = null;
+                restoredRetainedWebView = true;
+            } else {
+                webView = new WebView(getApplicationContext());
+            }
+        }
+        webView.addJavascriptInterface(new OnlyUsBridge(getApplicationContext()), "AndroidOnlyUs");
         webView.setBackgroundColor(Color.rgb(246, 248, 252));
         WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true);
@@ -84,7 +105,10 @@ public final class MainActivity extends Activity {
         });
 
         setContentView(webView);
-        webView.loadUrl("https://" + ASSET_HOST + "/assets/index.html");
+        webView.resumeTimers();
+        if (!restoredRetainedWebView) {
+            webView.loadUrl("https://" + ASSET_HOST + "/assets/index.html");
+        }
     }
 
     private WebResourceResponse openBundledAsset(String urlPath) {
@@ -111,6 +135,24 @@ public final class MainActivity extends Activity {
         } catch (IOException e) {
             return new WebResourceResponse("text/plain", "UTF-8", 404, "Not Found",
                 Collections.emptyMap(), null);
+        }
+    }
+
+    private static final class OnlyUsBridge {
+        private final Context appContext;
+
+        OnlyUsBridge(Context context) {
+            appContext = context.getApplicationContext();
+        }
+
+        @JavascriptInterface
+        public void incomingCall() {
+            OnlyUsService.incomingCall(appContext);
+        }
+
+        @JavascriptInterface
+        public void callEnded() {
+            OnlyUsService.callEnded(appContext);
         }
     }
 
@@ -166,10 +208,23 @@ public final class MainActivity extends Activity {
             pendingAudioRequest = null;
         }
         if (webView != null) {
-            webView.stopLoading();
-            webView.setWebChromeClient(null);
-            webView.setWebViewClient(null);
-            webView.destroy();
+            // Keep the live WebView/PeerJS socket across a swipe from Recents.
+            // OnlyUsService is foreground and holds a partial wake lock, so the
+            // WebView can continue receiving signaling without an Activity window.
+            ViewParent parent = webView.getParent();
+            if (parent instanceof ViewGroup) {
+                ((ViewGroup) parent).removeView(webView);
+            }
+            synchronized (MainActivity.class) {
+                if (retainedWebView == null) {
+                    retainedWebView = webView;
+                } else if (retainedWebView != webView) {
+                    webView.stopLoading();
+                    webView.setWebChromeClient(null);
+                    webView.setWebViewClient(null);
+                    webView.destroy();
+                }
+            }
             webView = null;
         }
         super.onDestroy();

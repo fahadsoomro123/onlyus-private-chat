@@ -60,8 +60,8 @@ function playRingtoneBurst() {
       const startAt = ctx.currentTime + offset;
       const gain = ctx.createGain();
       gain.gain.setValueAtTime(0.0001, startAt);
-      gain.gain.linearRampToValueAtTime(0.075, startAt + 0.035);
-      gain.gain.setValueAtTime(0.075, startAt + duration - 0.06);
+      gain.gain.linearRampToValueAtTime(0.85, startAt + 0.035);
+      gain.gain.setValueAtTime(0.85, startAt + duration - 0.06);
       gain.gain.linearRampToValueAtTime(0.0001, startAt + duration);
       gain.connect(ctx.destination);
       for (const frequency of [440, 480]) {
@@ -81,10 +81,14 @@ function playRingtoneBurst() {
 
 function startRingtone() {
   unlockRingtoneAudio();
-  if (!ringtoneContext || ringtoneActive) return;
+  if (ringtoneActive) return;
   ringtoneActive = true;
+  // Native rings use the phone's ringtone volume and continue if the app is backgrounded.
+  try { window.AndroidOnlyUs?.incomingCall?.(); } catch {}
+  try { window.onlyUsDesktop?.incomingCall?.(); } catch {}
   $('callPanel').dataset.ringing = 'true';
   $('callDescription').textContent = labelFor(partnerRole()) + ' is calling you. Ringing…';
+  if (!ringtoneContext) return;
   playRingtoneBurst();
   ringtoneTimer = setInterval(playRingtoneBurst, 1900);
 }
@@ -93,6 +97,8 @@ function stopRingtone() {
   ringtoneActive = false;
   if (ringtoneTimer) clearInterval(ringtoneTimer);
   ringtoneTimer = null;
+  try { window.AndroidOnlyUs?.callEnded?.(); } catch {}
+  try { window.onlyUsDesktop?.callEnded?.(); } catch {}
   if ($('callPanel')) delete $('callPanel').dataset.ringing;
 }
 function loadMessages() {
@@ -311,6 +317,7 @@ function initRole(selectedRole) {
   peer.on('call', call => {
     if (activeCall || incomingCall) { try { call.close(); } catch {} return; }
     incomingCall = call;
+    try { window.onlyUsDesktop?.incomingCall?.(); } catch {}
     $('callPanel').hidden = false;
     $('callTitle').textContent = 'Incoming voice call';
     $('callDescription').textContent = labelFor(partnerRole()) + ' is calling you.';
@@ -464,6 +471,7 @@ function stopLocalAudio() {
   $('remoteAudio').srcObject = null;
 }
 function finishCallUi() {
+  try { window.onlyUsDesktop?.callEnded?.(); } catch {}
   stopRingtone();
   activeCall = null;
   incomingCall = null;
