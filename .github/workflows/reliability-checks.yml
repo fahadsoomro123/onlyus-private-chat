@@ -23,6 +23,7 @@ jobs:
         run: |
           npm install --no-audit --no-fund
           npm run check
+          npm test
       - name: Smoke-test backend health endpoint
         working-directory: backend
         env:
