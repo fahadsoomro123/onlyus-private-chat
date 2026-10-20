@@ -18,6 +18,9 @@ public final class OnlyUsCallActionReceiver extends BroadcastReceiver {
         String callId = intent.getStringExtra(EXTRA_CALL_ID);
         String caller = intent.getStringExtra(EXTRA_CALLER);
         if (ACTION_DECLINE.equals(intent.getAction())) {
+            SharedPreferences prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+            if (callId == null || !callId.equals(prefs.getString("activePushCallId", ""))) return;
+            prefs.edit().remove("activePushCallId").remove("activePushCaller").apply();
             OnlyUsBackend.sendCallEvent(context, "rejected", callId);
             OnlyUsService.callEnded(context);
             return;
