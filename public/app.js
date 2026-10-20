@@ -364,7 +364,7 @@ async function initRole(selectedRole) {
     if (!message || message.callId !== currentId) return;
     if (message.event === 'rejected' || message.event === 'missed' || message.event === 'ended') {
       const reason = message.event;
-      endCall(false, false);
+      endCall(true, false);
       showToast(reason === 'rejected' ? 'Call declined.' : reason === 'missed' ? 'No answer.' : 'Call ended.');
     }
   });
@@ -576,7 +576,7 @@ async function acceptCall() {
     activeCallId = call.metadata && call.metadata.callId || activeCallId;
     if (activeCallId) sendBackendCall('accepted', activeCallId);
     activeCall = call;
-    call.answer(localAudioStream);
+    await call.answer(localAudioStream);
     showActiveCall('Connecting call…', 'Please wait a moment.');
     wireCall(call);
   } catch (error) {
