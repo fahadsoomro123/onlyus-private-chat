@@ -134,7 +134,10 @@ function startRingtone() {
   if (ringtoneActive) return;
   ringtoneActive = true;
   // Native rings use the phone's ringtone volume and continue if the app is backgrounded.
-  try { window.AndroidOnlyUs?.incomingCall?.(); } catch {}
+  try {
+    const callId = incomingCall && incomingCall.metadata && incomingCall.metadata.callId;
+    if (callId) window.AndroidOnlyUs?.incomingCall?.(callId, labelFor(partnerRole()));
+  } catch {}
   try { window.onlyUsDesktop?.incomingCall?.(); } catch {}
   $('callPanel').dataset.ringing = 'true';
   $('callDescription').textContent = labelFor(partnerRole()) + ' is calling you. Ringing…';
