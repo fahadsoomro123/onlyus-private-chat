@@ -1,0 +1,4 @@
+{
+  "roomKey": "REPLACE_WITH_48_CHARACTER_RANDOM_HEX_TOKEN",
+  "backendUrl": "https://YOUR_PRIVATE_BACKEND_HOST"
+}
