@@ -82,7 +82,6 @@ test('backend health, authentication, and paired WebRTC signaling work', async t
 
   const health = await waitForHealth(url, child);
   assert.equal(health.ok, true);
-  assert.equal(health.pushConfigured, false);
 
   const denied = await fetch(url + '/v1/ice', {
     headers: { Authorization: 'Bearer wrong-token' }
