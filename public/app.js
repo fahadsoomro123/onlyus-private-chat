@@ -24,6 +24,7 @@ let activeCallId = null;
 let outgoingCallConnected = false;
 let callRetryTimer = null;
 let callTimeoutTimer = null;
+let roleInitGeneration = 0;
 let messages = loadMessages();
 let toastTimer = null;
 let ringtoneContext = null;
@@ -37,6 +38,28 @@ function localPeerId() { return 'onlyus-' + role + '-' + settings.roomKey; }
 
 function backendBaseUrl() {
   return String(settings && settings.backendUrl || '').trim().replace(/\/+$/, '');
+}
+async function getIceServers() {
+  const fallback = [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun.cloudflare.com:3478' }
+  ];
+  const base = backendBaseUrl();
+  if (!base || !settings || !settings.roomKey) return fallback;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 3000);
+  try {
+    const response = await fetch(base + '/v1/ice', {
+      headers: { 'Authorization': 'Bearer ' + settings.roomKey },
+      cache: 'no-store',
+      signal: controller.signal
+    });
+    if (!response.ok) return fallback;
+    const payload = await response.json();
+    if (Array.isArray(payload.iceServers) && payload.iceServers.length) return payload.iceServers;
+  } catch {}
+  finally { clearTimeout(timeout); }
+  return fallback;
 }
 function sendBackendCall(eventName, callId) {
   const base = backendBaseUrl();
@@ -340,7 +363,8 @@ function schedulePeerRestart(reason) {
   }, waitMs);
 }
 
-function initRole(selectedRole) {
+async function initRole(selectedRole) {
+  const initGeneration = ++roleInitGeneration;
   if (peerRetryTimer) { clearTimeout(peerRetryTimer); peerRetryTimer = null; }
   if (!settings || !['fahad', 'wife'].includes(selectedRole) || !window.Peer) {
     showToast('The app could not start. Close it and try again with an Internet connection.');
@@ -361,12 +385,14 @@ function initRole(selectedRole) {
   $('callButton').setAttribute('aria-label', 'Call ' + labelFor(partnerRole()));
   renderMessages();
   setStatus('Connecting to private network…');
+  const iceServers = await getIceServers();
+  if (initGeneration !== roleInitGeneration || role !== selectedRole) return;
   try {
     peer = new Peer(localPeerId(), {
       host: settings.peerHost || '0.peerjs.com',
       port: Number(settings.peerPort || 443),
       secure: true,
-      config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun.cloudflare.com:3478' }] },
+      config: { iceServers },
       debug: 1
     });
   } catch {
