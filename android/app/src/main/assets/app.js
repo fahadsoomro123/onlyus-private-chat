@@ -359,9 +359,30 @@ function initRole(selectedRole) {
 }
 async function getMicrophone() {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    throw new Error('This device does not allow microphone access here. Open Only Us in the app or a current browser.');
+    const error = new Error('Microphone access is unavailable in this app.');
+    error.name = 'NotSupportedError';
+    throw error;
   }
-  return navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false });
+
+  // Some Android WebView/audio-driver combinations fail while opening AudioRecord
+  // with processing constraints. Retry using simpler capture constraints.
+  const attempts = [
+    { audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false },
+    { audio: { echoCancellation: true }, video: false },
+    { audio: true, video: false }
+  ];
+  let lastError;
+  for (let index = 0; index < attempts.length; index += 1) {
+    try {
+      return await navigator.mediaDevices.getUserMedia(attempts[index]);
+    } catch (error) {
+      lastError = error;
+      const retryable = ['NotReadableError', 'AbortError', 'OverconstrainedError'].includes(error && error.name);
+      if (!retryable || index === attempts.length - 1) throw error;
+      await new Promise(resolve => setTimeout(resolve, 250));
+    }
+  }
+  throw lastError || new Error('Could not access the microphone.');
 }
 function showActiveCall(title, description) {
   $('callPanel').hidden = false;
@@ -401,7 +422,14 @@ async function startCall() {
     wireCall(call);
   } catch (error) {
     stopLocalAudio();
-    showToast(error && error.message ? error.message : 'Microphone permission is needed for a voice call.');
+    console.error('Only Us microphone capture failed:', error && error.name, error && error.message);
+    const name = error && error.name ? error.name : 'UnknownError';
+    const guidance = name === 'NotReadableError'
+      ? 'Phone could not open its microphone. Close other voice/recording apps and check Only Us microphone permission.'
+      : name === 'NotAllowedError' || name === 'SecurityError'
+        ? 'Allow microphone permission for Only Us in Android Settings.'
+        : 'Microphone failed to start. Check Android microphone permission and try again.';
+    showToast(guidance + ' (' + name + ')');
   }
 }
 async function acceptCall() {
@@ -415,7 +443,14 @@ async function acceptCall() {
     showActiveCall('Connecting call…', 'Please wait a moment.');
     wireCall(call);
   } catch (error) {
-    showToast(error && error.message ? error.message : 'Microphone permission is needed to answer.');
+    console.error('Only Us microphone capture failed while answering:', error && error.name, error && error.message);
+    const name = error && error.name ? error.name : 'UnknownError';
+    const guidance = name === 'NotReadableError'
+      ? 'Phone could not open its microphone. Close other voice/recording apps and check Only Us microphone permission.'
+      : name === 'NotAllowedError' || name === 'SecurityError'
+        ? 'Allow microphone permission for Only Us in Android Settings.'
+        : 'Microphone failed to start. Check Android microphone permission and try again.';
+    showToast(guidance + ' (' + name + ')');
     try { call.close(); } catch {}
     finishCallUi();
   }

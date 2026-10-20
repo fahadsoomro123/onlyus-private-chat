@@ -1,12 +1,62 @@
 {
   "name": "only-us-private-chat",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
-  "description": "Private peer-to-peer voice and chat for two devices",
+  "description": "Private voice and chat for two devices",
+  "main": "desktop/main.cjs",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "desktop:dev": "electron .",
+    "desktop:build": "electron-builder --win nsis",
+    "check:syntax": "node --check public/app.js && node --check android/app/src/main/assets/app.js && node --check desktop/main.cjs"
   },
   "dependencies": {
     "peerjs": "1.5.5"
+  },
+  "devDependencies": {
+    "electron": "44.9.1",
+    "electron-builder": "^26.7.0"
+  },
+  "build": {
+    "appId": "com.onlyus.privatechat",
+    "productName": "Only Us",
+    "asar": true,
+    "directories": {
+      "output": "dist/desktop"
+    },
+    "files": [
+      "desktop/main.cjs",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "public",
+        "to": "public",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "Only-Us-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Only Us",
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false
+    }
   }
 }

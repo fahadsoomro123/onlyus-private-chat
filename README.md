@@ -2,10 +2,13 @@
 
 A simple private two-device voice and chat app. The PC version runs on the home laptop; the Android APK runs on Fahad's phone.
 
+## Windows desktop app
+Build the Windows installer with `npm install` then `npm run desktop:build`. The installer is created under `dist/desktop/`. The installed app runs its own local UI, starts with Windows by default, and stays in the system tray when its window is closed. Use **Exit Only Us** from the tray menu to quit it completely. The desktop app uses a fixed loopback origin so the selected role and local chat history persist across launches.
+
 ## Start on the home laptop
-1. Open the desktop shortcut **Only Us** (created by setup).
-2. Leave the browser tab open when you want to be reachable for calls/messages.
-3. Choose **Wife** on the laptop the first time.
+1. Install **Only Us** using the Windows installer in `dist/desktop/`.
+2. Choose **Wife** on the laptop the first time.
+3. Keep Only Us running in the system tray while you want to receive calls/messages.
 
 ## Start on Android
 1. Install OnlyUs.apk.
