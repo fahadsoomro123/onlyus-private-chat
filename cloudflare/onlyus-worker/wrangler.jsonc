@@ -1,0 +1,19 @@
+{
+  "$schema": "https://unpkg.com/wrangler@4/config-schema.json",
+  "name": "onlyus-private-chat-v2-signaling",
+  "main": "src/index.js",
+  "compatibility_date": "2026-10-20",
+  "workers_dev": true,
+  "account_id": "939503aa0d877dcd4708e2f107dbf668",
+  "durable_objects": {
+    "bindings": [
+      { "name": "SIGNALING", "class_name": "OnlyUsRoom" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["OnlyUsRoom"] }
+  ],
+  "vars": {
+    "ONLYUS_ALLOWED_ORIGINS": "https://appassets.androidplatform.net,http://127.0.0.1:4178,http://localhost:4178"
+  }
+}

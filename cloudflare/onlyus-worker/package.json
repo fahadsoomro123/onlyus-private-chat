@@ -1,0 +1,9 @@
+{
+  "name": "onlyus-private-chat-v2-cloudflare",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "check": "node --check src/index.js && node --check test/worker.test.mjs"
+  }
+}

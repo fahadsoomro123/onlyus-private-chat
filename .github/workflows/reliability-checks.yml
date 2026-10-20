@@ -42,6 +42,11 @@ jobs:
           done
           cat /tmp/onlyus-backend.log
           exit 1
+      - name: Check Cloudflare Worker
+        working-directory: cloudflare/onlyus-worker
+        run: |
+          npm run check
+          npm test
 
   android-debug-build:
     runs-on: ubuntu-latest
