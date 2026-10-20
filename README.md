@@ -1,37 +1,44 @@
 # Only Us
 
-A simple private two-device voice and chat app. The Windows desktop app runs on the home laptop; the Android APK runs on Fahad's phone.
+Private two-device voice calling and messaging for one Android phone and one Windows laptop.
 
-## Windows desktop app
-Build the Windows installer with `npm install` then `npm run desktop:build`. The installer is created under `dist/desktop/`. The installed app runs its own local UI, starts with Windows by default, and stays in the system tray when its window is closed. Use **Exit Only Us** from the tray menu to quit it completely. The desktop app uses a fixed loopback origin so the selected role and local chat history persist across launches.
+## Reliability v2 status
 
-## Start on the home laptop
-1. Install **Only Us** using the Windows installer in `dist/desktop/`.
-2. Choose **Wife** on the laptop the first time.
-3. Keep Only Us running in the system tray while you want to receive calls/messages.
+The `reliability-v2` branch replaces PeerJS Cloud signaling with a private authenticated WebSocket signaling service and standard WebRTC connections. It also adds native Android push-call notification handling, a Windows per-user installer, automated backend signaling tests, and CI Android compilation.
 
-## Start on Android
-1. Install `OnlyUs.apk` and open Only Us.
-2. Choose **Fahad** once; allow microphone and notification permissions.
-3. Leave the **Only Us is active** notification visible. Approve the **unrestricted battery use** prompt so battery optimization is less likely to suspend signaling.
-4. The foreground service is designed to keep the connection active after screen-off and a Recents swipe. If Android or the phone manufacturer still kills the process, reopen Only Us. After a phone reboot, open Only Us again.
+**This branch is not ready to replace the installed apps yet.** The private backend must be deployed, Firebase Cloud Messaging must be configured, TURN credentials must be added, and the local pairing configs must be completed. No real phone-to-laptop locked-screen call test has been run for v2.
 
-Incoming calls use the phone's actual ringtone volume plus a native call notification. Battery-saver/OEM restrictions can still interrupt background networking; Android's explicit **Force stop** always stops the app.
+## Design
 
-## GitHub Pages desktop version
-The hosted browser version is published from `public/` with GitHub Pages. The hosted copy intentionally does not include `pair-config.json` or the private pairing key. On the home laptop, enter the 48-character key from `pair-secret.private` once in the hosted setup panel, then choose **Wife**. The key is saved only in that browser's local storage; it is not uploaded to GitHub. The Android app continues to use its private bundled configuration and should be opened as **Fahad**.
+- Android client: native FCM token registration, native incoming-call notification with Answer/Decline actions, and local ringtone service.
+- Windows client: per-user installer, autostart at user login, system-tray behavior, and calls/messages UI.
+- Signaling: authenticated WebSocket messages for WebRTC offers, answers, ICE candidates and cancel events.
+- Media and data: WebRTC between the two paired devices; use the configured TURN service if a direct connection fails.
+- Push calls: Firebase Cloud Messaging is used to wake the phone for incoming-call alerts when its app process is not running.
+- Secrets: no pairing token, Firebase service-account file, FCM config, signing key, or APK is committed to the repository.
 
-Never commit or publish `pair-secret.private`, either `pair-config.json`, signing keys, or an APK that contains your pairing ID. The Pages workflow checks for these files before publishing.
+## Required setup before using v2
 
-## What it does
-- Live voice calls using browser/WebView WebRTC.
-- Chat between the two paired app instances.
-- Chat messages are stored on each device and synchronized peer-to-peer when both clients reconnect. A message written while the other side is offline stays queued on the sending device until the app reconnects.
-- No account, phone number, public room link, camera, recording, or home-router port forwarding is required.
+Follow [backend/DEPLOYMENT-CHECKLIST.md](backend/DEPLOYMENT-CHECKLIST.md). In brief:
 
-## Network and privacy notes
-- PeerJS Cloud is used only for WebRTC signaling. Voice and chat normally travel directly between the devices using encrypted WebRTC. A restrictive network may block direct media/data connections because this build uses a public STUN server and does not include a TURN relay.
-- The PC app binds to 127.0.0.1 only; it does not expose a local web server to the LAN or Internet.
-- Both clients include the same randomly generated pairing ID. Keep the APK and this folder private. Anyone who gets the APK or folder can extract that pairing ID and could impersonate one endpoint.
-- Both apps must be open and online for new messages to sync and for incoming calls to ring. This build does not use background push notifications.
-- Do not use this app for emergency calls or sensitive information until both devices have been tested by you.
+1. Configure a Firebase project with Cloud Messaging and Cloud Firestore, then keep `google-services.json` local at `android/app/google-services.json`.
+2. Deploy `backend/` on a persistent HTTPS/WSS-capable host. `backend/Dockerfile` is included for container deployments.
+3. Configure the backend's private `ONLYUS_PAIR_TOKEN`, Firebase service-account credential, allowed app origins, and TURN URL/shared secret as host secrets.
+4. Configure the same private pairing token and backend HTTPS URL in each local `pair-config.json`. Keep `android/app/src/main/assets/pair-config.json` and `public/pair-config.json` out of source control.
+5. Build and install local release packages with the existing Android signing key and run the release-gate tests listed in the deployment checklist.
+
+The code deliberately shows a setup error instead of pretending to connect while the backend URL has not been configured.
+
+## Build and checks
+
+- Root JavaScript syntax check: `npm run check:syntax`
+- Windows installer: `npm install`, then `npm run desktop:build`. The installer is per-user and should not request administrator elevation.
+- Backend: `cd backend`, then `npm install`, `npm run check`, and `npm test`.
+- Android debug build: `gradle -p android assembleDebug --no-daemon` (JDK 17, Android SDK 35 and Gradle 8.9).
+- GitHub Actions runs JavaScript/backend regression tests and compiles the Android debug APK.
+
+## Verification required before release
+
+Test calling both ways; locked screen; app swiped from Recents; phone app restarted; phone reboot; notification Answer/Decline; missed-call timeout; Wi-Fi/mobile-data handover; a restrictive network with TURN enabled; and Windows restart/login using a standard user account.
+
+No app can promise calls during a complete internet outage or after Android's explicit Force stop. Do not use this app for emergency calls.
