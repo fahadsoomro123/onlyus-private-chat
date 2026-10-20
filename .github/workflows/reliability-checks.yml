@@ -23,6 +23,24 @@ jobs:
         run: |
           npm install --no-audit --no-fund
           npm run check
+      - name: Smoke-test backend health endpoint
+        working-directory: backend
+        env:
+          ONLYUS_PAIR_TOKEN: reliability-ci-only-token-000000000000000000000000000000000000000000
+          PORT: '18787'
+        run: |
+          npm start > /tmp/onlyus-backend.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+          for i in {1..15}; do
+            if curl --fail --silent http://127.0.0.1:18787/healthz; then
+              echo
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/onlyus-backend.log
+          exit 1
 
   android-debug-build:
     runs-on: ubuntu-latest
