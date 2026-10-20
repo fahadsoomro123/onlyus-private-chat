@@ -44,6 +44,7 @@ public final class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         OnlyUsService.start(this);
+        OnlyUsMessagingService.refreshTokenRegistration(getApplicationContext());
         if (Build.VERSION.SDK_INT >= 33
             && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 7215);
@@ -177,6 +178,11 @@ public final class MainActivity extends Activity {
         @JavascriptInterface
         public void callEnded() {
             OnlyUsService.callEnded(appContext);
+        }
+
+        @JavascriptInterface
+        public boolean shouldAutoAnswer(String callId) {
+            return OnlyUsCallActionReceiver.consumeAnswerFor(appContext, callId);
         }
     }
 
