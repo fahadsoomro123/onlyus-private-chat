@@ -305,7 +305,14 @@ function initRole(selectedRole) {
     });
     startRingtone();
   });
-  peer.on('disconnected', () => setStatus('Reconnecting to private network…'));
+  peer.on('disconnected', () => {
+    setStatus('Reconnecting to private network…');
+    // Re-open the PeerJS signalling connection after a transient server drop.
+    // Without this, the UI can remain stuck on “Reconnecting…” indefinitely.
+    if (peer && !peer.destroyed) {
+      try { peer.reconnect(); } catch {}
+    }
+  });
   peer.on('error', err => {
     if (err && err.type === 'unavailable-id') {
       setStatus('This profile is already open on another device');
