@@ -4,6 +4,7 @@ import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
+import android.app.Person;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
@@ -41,8 +42,14 @@ public final class OnlyUsService extends Service {
     }
 
     public static void incomingCall(Context context) {
+        incomingCall(context, null, "Your partner");
+    }
+
+    public static void incomingCall(Context context, String callId, String caller) {
         Intent intent = new Intent(context, OnlyUsService.class);
         intent.setAction(ACTION_RING);
+        if (callId != null) intent.putExtra(OnlyUsCallActionReceiver.EXTRA_CALL_ID, callId);
+        if (caller != null) intent.putExtra(OnlyUsCallActionReceiver.EXTRA_CALLER, caller);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent);
         else context.startService(intent);
     }
@@ -66,7 +73,10 @@ public final class OnlyUsService extends Service {
         startAsForeground();
         String action = intent == null ? null : intent.getAction();
         if (ACTION_RING.equals(action)) {
-            showIncomingCall();
+            showIncomingCall(
+                intent == null ? null : intent.getStringExtra(OnlyUsCallActionReceiver.EXTRA_CALL_ID),
+                intent == null ? null : intent.getStringExtra(OnlyUsCallActionReceiver.EXTRA_CALLER)
+            );
         } else if (ACTION_STOP_RING.equals(action)) {
             cancelIncomingCall();
         }
@@ -129,22 +139,50 @@ public final class OnlyUsService extends Service {
         }
     }
 
-    private void showIncomingCall() {
+    private PendingIntent callActionIntent(String action, String callId, String caller, int requestCode) {
+        Intent intent = new Intent(this, OnlyUsCallActionReceiver.class);
+        intent.setAction(action);
+        if (callId != null) intent.putExtra(OnlyUsCallActionReceiver.EXTRA_CALL_ID, callId);
+        if (caller != null) intent.putExtra(OnlyUsCallActionReceiver.EXTRA_CALLER, caller);
+        return PendingIntent.getBroadcast(this, requestCode, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+    }
+
+    private void showIncomingCall(String callId, String caller) {
+        String callerName = (caller == null || caller.trim().isEmpty()) ? "Your partner" : caller;
+        PendingIntent answerIntent = callActionIntent(
+            OnlyUsCallActionReceiver.ACTION_ANSWER, callId, callerName, 7403);
+        PendingIntent declineIntent = callActionIntent(
+            OnlyUsCallActionReceiver.ACTION_DECLINE, callId, callerName, 7404);
+
         Notification.Builder builder = new Notification.Builder(this, CHANNEL_CALLS)
             .setSmallIcon(R.drawable.ic_onlyus)
             .setContentTitle("Only Us · Incoming call")
-            .setContentText("Your partner is calling. Tap to answer.")
+            .setContentText(callerName + " is calling. Tap to answer.")
             .setContentIntent(openAppIntent())
             .setCategory(Notification.CATEGORY_CALL)
             .setVisibility(Notification.VISIBILITY_PUBLIC)
             .setAutoCancel(true)
             .setOnlyAlertOnce(false)
             .setWhen(System.currentTimeMillis());
-        NotificationManager manager = getSystemService(NotificationManager.class);
-        if (Build.VERSION.SDK_INT < 34 || (manager != null && manager.canUseFullScreenIntent())) {
-            builder.setFullScreenIntent(openAppIntent(), true);
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            Person person = new Person.Builder().setName(callerName).setImportant(true).build();
+            builder.setStyle(Notification.CallStyle.forIncomingCall(person, declineIntent, answerIntent));
+        } else {
+            builder.addAction(new Notification.Action.Builder(
+                android.R.drawable.ic_menu_call, "Answer", answerIntent).build());
+            builder.addAction(new Notification.Action.Builder(
+                android.R.drawable.ic_menu_close_clear_cancel, "Decline", declineIntent).build());
         }
-        if (manager != null) manager.notify(CALL_NOTIFICATION_ID, builder.build());
+
+        NotificationManager manager = getSystemService(NotificationManager.class);
+        if (manager != null) {
+            if (Build.VERSION.SDK_INT < 34 || manager.canUseFullScreenIntent()) {
+                builder.setFullScreenIntent(openAppIntent(), true);
+            }
+            manager.notify(CALL_NOTIFICATION_ID, builder.build());
+        }
         startNativeRingtone();
     }
 
