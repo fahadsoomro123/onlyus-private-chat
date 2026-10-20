@@ -36,8 +36,8 @@ function backendConnectSources(root) {
     const parsed = new URL(String(config.backendUrl || ''));
     if (parsed.protocol === 'https:' || parsed.protocol === 'http:') {
       sources.push(parsed.origin);
-      parsed.protocol = parsed.protocol === 'https:' ? 'wss:' : 'ws:';
-      sources.push(parsed.origin);
+      const socketScheme = parsed.protocol === 'https:' ? 'wss:' : 'ws:';
+      sources.push(socketScheme + '//' + parsed.host);
     }
   } catch {}
   return sources.join(' ');
