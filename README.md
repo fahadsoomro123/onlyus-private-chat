@@ -24,7 +24,7 @@ Follow [backend/DEPLOYMENT-CHECKLIST.md](backend/DEPLOYMENT-CHECKLIST.md). In br
 1. Configure a Firebase project with Cloud Messaging and Cloud Firestore, then keep `google-services.json` local at `android/app/google-services.json`.
 2. Deploy `backend/` on a persistent HTTPS/WSS-capable host. `backend/Dockerfile` is included for container deployments.
 3. Configure the backend's private `ONLYUS_PAIR_TOKEN`, Firebase service-account credential, allowed app origins, and TURN URL/shared secret as host secrets.
-4. Configure the same private pairing token and backend HTTPS URL in each local `pair-config.json`. Keep `android/app/src/main/assets/pair-config.json` and `public/pair-config.json` out of source control.
+4. Copy `backend/client-config.template.json` to local `public/pair-config.json` and `android/app/src/main/assets/pair-config.json`, then replace both values with the same private 48-character hex pairing token and your backend HTTPS URL. Keep both generated files out of source control.
 5. Build and install local release packages with the existing Android signing key and run the release-gate tests listed in the deployment checklist.
 
 The code deliberately shows a setup error instead of pretending to connect while the backend URL has not been configured.
