@@ -11,3 +11,7 @@ android/app/src/main/assets/pair-config.json
 *.idsig
 pair-secret.private
 public/pair-config.json
+backend/node_modules/
+backend/data/
+backend/.env
+android/app/google-services.json
