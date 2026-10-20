@@ -50,7 +50,13 @@ function setStartup(enabled) {
   try {
     fs.mkdirSync(app.getPath('userData'), { recursive: true });
     fs.writeFileSync(path.join(app.getPath('userData'), 'settings.json'), JSON.stringify(preferences, null, 2));
-    app.setLoginItemSettings({ openAtLogin: preferences.startWithWindows, openAsHidden: true });
+    app.setLoginItemSettings({
+      openAtLogin: preferences.startWithWindows,
+      path: process.execPath,
+      args: ['--hidden'],
+      enabled: preferences.startWithWindows,
+      name: 'Only Us'
+    });
   } catch (error) {
     console.error('Only Us startup setting failed:', error.message);
   }
