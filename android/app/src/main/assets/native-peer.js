@@ -282,6 +282,8 @@
       this.reconnectTimer = null;
       this.reconnectDelay = 1000;
       this.connectGeneration = 0;
+      this.heartbeatTimer = null;
+      this.lastPongAt = 0;
       this._connect();
     }
 
@@ -335,6 +337,8 @@
         const wasOpen = this.open;
         this.open = false;
         this.disconnected = true;
+        if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
+        this.heartbeatTimer = null;
         if (wasOpen) this.emit('disconnected');
         this._scheduleReconnect();
       });
@@ -348,7 +352,23 @@
         this.open = true;
         this.disconnected = false;
         this.reconnectDelay = 1000;
+        this.lastPongAt = Date.now();
+        if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
+        this.heartbeatTimer = setInterval(() => {
+          const socket = this.socket;
+          if (this.destroyed || !this.open || !socket || socket.readyState !== WebSocket.OPEN) return;
+          if (Date.now() - this.lastPongAt > 45000) {
+            try { socket.close(); } catch {}
+            return;
+          }
+          try { socket.send(JSON.stringify({ type: 'ping' })); }
+          catch { try { socket.close(); } catch {} }
+        }, 20000);
         this.emit('open', this.id);
+        return;
+      }
+      if (message.type === 'pong') {
+        this.lastPongAt = Date.now();
         return;
       }
       if (message.type === 'call_event') {
@@ -459,6 +479,8 @@
       this.open = false;
       if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
+      if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
       for (const conn of [...this.connections.values()]) {
         try { conn.close(false); } catch {}
       }
