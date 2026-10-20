@@ -56,7 +56,7 @@ const server = http.createServer((req, res) => {
       'X-Frame-Options': 'DENY',
       'Referrer-Policy': 'no-referrer',
       'Permissions-Policy': 'microphone=(self), camera=(), geolocation=()',
-      'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src ${CONNECT_SOURCES}; media-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
+      'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src " + CONNECT_SOURCES + "; media-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
       'Cache-Control': path.basename(file) === 'pair-config.json' ? 'no-store' : 'no-cache'
     });
     fs.createReadStream(file).pipe(res);
