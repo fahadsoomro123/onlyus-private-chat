@@ -110,6 +110,9 @@ test('backend health, authentication, and paired WebRTC signaling work', async t
 
   const phone = await connectDevice(url, 'phone');
   const desktop = await connectDevice(url, 'desktop');
+  const pong = nextMessage(phone, message => message.type === 'pong');
+  phone.send(JSON.stringify({ type: 'ping' }));
+  assert.equal((await pong).type, 'pong');
   t.after(() => {
     try { phone.close(); } catch {}
     try { desktop.close(); } catch {}
