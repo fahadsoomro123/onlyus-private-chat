@@ -121,14 +121,17 @@ public final class MainActivity extends Activity {
         if (intent == null || !OnlyUsCallActionReceiver.ACTION_ANSWER.equals(intent.getAction())) return;
         String callId = intent.getStringExtra(OnlyUsCallActionReceiver.EXTRA_CALL_ID);
         String caller = intent.getStringExtra(OnlyUsCallActionReceiver.EXTRA_CALLER);
-        getSharedPreferences("onlyus.pending-call", MODE_PRIVATE).edit()
-            .putString("pendingCallId", callId == null ? "" : callId)
+        if (callId == null || callId.isEmpty()) return;
+        android.content.SharedPreferences prefs = getSharedPreferences("onlyus.pending-call", MODE_PRIVATE);
+        if (!callId.equals(prefs.getString("activePushCallId", ""))) return;
+        prefs.edit()
+            .remove("activePushCallId")
+            .remove("activePushCaller")
+            .putString("pendingCallId", callId)
             .putString("pendingCaller", caller == null ? "Your partner" : caller)
-            .putBoolean("answerNextCall", callId != null && !callId.isEmpty())
+            .putBoolean("answerNextCall", true)
             .apply();
-        if (callId != null && !callId.isEmpty()) {
-            OnlyUsBackend.sendCallEvent(this, "accepted", callId);
-        }
+        OnlyUsBackend.sendCallEvent(this, "accepted", callId);
         OnlyUsService.callEnded(this);
         if (webView != null) {
             webView.postDelayed(() -> webView.evaluateJavascript(
