@@ -1,14 +1,12 @@
 import http from 'node:http';
-import fs from 'node:fs';
-import path from 'node:path';
 import crypto from 'node:crypto';
 import { WebSocket, WebSocketServer } from 'ws';
 import { applicationDefault, cert, getApps, initializeApp } from 'firebase-admin/app';
 import { getMessaging } from 'firebase-admin/messaging';
+import { getFirestore } from 'firebase-admin/firestore';
 
 const PORT = Number(process.env.PORT || 8787);
 const PAIR_TOKEN = process.env.ONLYUS_PAIR_TOKEN || '';
-const STATE_FILE = path.resolve(process.env.ONLYUS_STATE_FILE || './data/devices.json');
 const ALLOWED_ORIGINS = new Set(
   (process.env.ONLYUS_ALLOWED_ORIGINS ||
     'https://appassets.androidplatform.net,http://127.0.0.1:4178,http://localhost:4178')
@@ -33,16 +31,20 @@ try {
 }
 
 let messaging = null;
+let firestore = null;
 try {
   if (getApps().length) {
     messaging = getMessaging();
+    firestore = getFirestore();
   } else if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
     const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
     initializeApp({ credential: cert(serviceAccount) });
     messaging = getMessaging();
+    firestore = getFirestore();
   } else {
     initializeApp({ credential: applicationDefault() });
     messaging = getMessaging();
+    firestore = getFirestore();
   }
 } catch (error) {
   console.warn('Firebase push is not configured yet:', error.message);
@@ -103,7 +105,11 @@ const server = http.createServer(async (req, res) => {
     state.phoneFcmToken = body.fcmToken;
     state.updatedAt = new Date().toISOString();
     try {
-      persistState();
+      if (!firestore) return json(res, 503, { error: 'firebase_not_configured' });
+      await firestore.collection('onlyus_devices').doc('phone').set({
+        fcmToken: state.phoneFcmToken,
+        updatedAt: state.updatedAt
+      });
     } catch (error) {
       console.error('Could not persist the phone token:', error.message);
       return json(res, 500, { error: 'state_write_failed' });
@@ -114,7 +120,13 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/v1/unregister-phone') {
     state.phoneFcmToken = null;
     state.updatedAt = new Date().toISOString();
-    try { persistState(); } catch (error) {
+    try {
+      if (!firestore) return json(res, 503, { error: 'firebase_not_configured' });
+      await firestore.collection('onlyus_devices').doc('phone').set({
+        fcmToken: null,
+        updatedAt: state.updatedAt
+      });
+    } catch (error) {
       return json(res, 500, { error: 'state_write_failed' });
     }
     return json(res, 200, { ok: true });
@@ -157,7 +169,11 @@ const server = http.createServer(async (req, res) => {
         if (['messaging/registration-token-not-registered', 'messaging/invalid-registration-token'].includes(error.code)) {
           state.phoneFcmToken = null;
           state.updatedAt = new Date().toISOString();
-          try { persistState(); } catch {}
+          try {
+            if (firestore) await firestore.collection('onlyus_devices').doc('phone').set({
+              fcmToken: null, updatedAt: state.updatedAt
+            });
+          } catch {}
         }
       }
     }
@@ -243,6 +259,16 @@ wss.on('connection', ws => {
   ws.on('error', error => console.warn('WebSocket connection error:', error.message));
 });
 
+try {
+  if (firestore) {
+    const saved = await firestore.collection('onlyus_devices').doc('phone').get();
+    state.phoneFcmToken = saved.exists ? (saved.data().fcmToken || null) : null;
+    state.updatedAt = saved.exists ? (saved.data().updatedAt || null) : null;
+  }
+} catch (error) {
+  console.warn('Could not load saved phone token from Firestore:', error.message);
+}
+
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`Only Us backend listening on port ${PORT}.`);
   console.log(`FCM: ${messaging ? 'ready' : 'not configured'}; phone registered: ${Boolean(state.phoneFcmToken)}.`);
@@ -258,14 +284,6 @@ function safeEqual(left, right) {
   const a = Buffer.from(left);
   const b = Buffer.from(right);
   return a.length === b.length && crypto.timingSafeEqual(a, b);
-}
-
-function persistState() {
-  fs.mkdirSync(path.dirname(STATE_FILE), { recursive: true, mode: 0o700 });
-  const temp = STATE_FILE + '.tmp';
-  fs.writeFileSync(temp, JSON.stringify(state, null, 2), { mode: 0o600 });
-  fs.renameSync(temp, STATE_FILE);
-  try { fs.chmodSync(STATE_FILE, 0o600); } catch {}
 }
 
 function buildIceServers() {
