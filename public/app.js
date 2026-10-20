@@ -16,6 +16,9 @@ let incomingCall = null;
 let localAudioStream = null;
 let messages = loadMessages();
 let toastTimer = null;
+let ringtoneContext = null;
+let ringtoneTimer = null;
+let ringtoneActive = false;
 
 function partnerRole() { return role === 'fahad' ? 'wife' : 'fahad'; }
 function labelFor(value) { return ROLE_LABELS[value] || 'Partner'; }
@@ -34,6 +37,60 @@ function showToast(message) {
   $('toast').hidden = false;
   if (toastTimer) clearTimeout(toastTimer);
   toastTimer = setTimeout(() => { $('toast').hidden = true; }, 3600);
+}
+
+function unlockRingtoneAudio() {
+  try {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) return;
+    if (!ringtoneContext) ringtoneContext = new AudioContextClass();
+    if (ringtoneContext.state === 'suspended') ringtoneContext.resume().catch(() => {});
+  } catch {}
+}
+
+function playRingtoneBurst() {
+  if (!ringtoneActive || !ringtoneContext) return;
+  try {
+    const ctx = ringtoneContext;
+    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+    const ringOne = (offset, duration) => {
+      const startAt = ctx.currentTime + offset;
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0.0001, startAt);
+      gain.gain.linearRampToValueAtTime(0.075, startAt + 0.035);
+      gain.gain.setValueAtTime(0.075, startAt + duration - 0.06);
+      gain.gain.linearRampToValueAtTime(0.0001, startAt + duration);
+      gain.connect(ctx.destination);
+      for (const frequency of [440, 480]) {
+        const oscillator = ctx.createOscillator();
+        oscillator.type = 'sine';
+        oscillator.frequency.setValueAtTime(frequency, startAt);
+        oscillator.connect(gain);
+        oscillator.start(startAt);
+        oscillator.stop(startAt + duration + 0.015);
+      }
+      setTimeout(() => { try { gain.disconnect(); } catch {} }, Math.ceil((offset + duration + 0.1) * 1000));
+    };
+    ringOne(0, 0.38);
+    ringOne(0.48, 0.38);
+  } catch {}
+}
+
+function startRingtone() {
+  unlockRingtoneAudio();
+  if (!ringtoneContext || ringtoneActive) return;
+  ringtoneActive = true;
+  $('callPanel').dataset.ringing = 'true';
+  $('callDescription').textContent = labelFor(partnerRole()) + ' is calling you. Ringing…';
+  playRingtoneBurst();
+  ringtoneTimer = setInterval(playRingtoneBurst, 1900);
+}
+
+function stopRingtone() {
+  ringtoneActive = false;
+  if (ringtoneTimer) clearInterval(ringtoneTimer);
+  ringtoneTimer = null;
+  if ($('callPanel')) delete $('callPanel').dataset.ringing;
 }
 function loadMessages() {
   try {
@@ -189,6 +246,7 @@ function initRole(selectedRole) {
     showToast('The app could not start. Close it and try again with an Internet connection.');
     return;
   }
+  unlockRingtoneAudio();
   if (peer) { try { peer.destroy(); } catch {} }
   if (dialTimer) { clearInterval(dialTimer); dialTimer = null; }
   endCall(false);
@@ -231,6 +289,20 @@ function initRole(selectedRole) {
     $('callDescription').textContent = labelFor(partnerRole()) + ' is calling you.';
     $('incomingActions').hidden = false;
     $('activeActions').hidden = true;
+    call.on('close', () => {
+      if (incomingCall === call && !activeCall) {
+        stopRingtone();
+        finishCallUi();
+      }
+    });
+    call.on('error', () => {
+      if (incomingCall === call && !activeCall) {
+        stopRingtone();
+        finishCallUi();
+        showToast('The incoming call ended or could not connect.');
+      }
+    });
+    startRingtone();
   });
   peer.on('disconnected', () => setStatus('Reconnecting to private network…'));
   peer.on('error', err => {
@@ -278,6 +350,7 @@ function wireCall(call) {
 async function startCall() {
   if (!peer || !peer.open) { showToast('Connecting to the private network. Try again in a moment.'); return; }
   if (activeCall || incomingCall) return;
+  stopRingtone();
   try {
     localAudioStream = await getMicrophone();
     const call = peer.call(otherPeerId(), localAudioStream, { metadata: { from: role, label: labelFor(role) } });
@@ -293,6 +366,7 @@ async function startCall() {
 async function acceptCall() {
   if (!incomingCall) return;
   const call = incomingCall;
+  stopRingtone();
   try {
     localAudioStream = await getMicrophone();
     activeCall = call;
@@ -313,6 +387,7 @@ function stopLocalAudio() {
   $('remoteAudio').srcObject = null;
 }
 function finishCallUi() {
+  stopRingtone();
   activeCall = null;
   incomingCall = null;
   stopLocalAudio();
@@ -321,6 +396,7 @@ function finishCallUi() {
   $('activeActions').hidden = true;
 }
 function endCall(closeRemote = true) {
+  stopRingtone();
   const call = activeCall || incomingCall;
   activeCall = null;
   incomingCall = null;
@@ -342,6 +418,7 @@ function sendMessage(text) {
 
 document.querySelectorAll('[data-role]').forEach(button => button.addEventListener('click', () => initRole(button.dataset.role)));
 $('changeProfile').addEventListener('click', () => {
+  stopRingtone();
   endCall();
   if (peer) { try { peer.destroy(); } catch {} peer = null; }
   if (dialTimer) { clearInterval(dialTimer); dialTimer = null; }
@@ -366,6 +443,7 @@ $('declineButton').addEventListener('click', () => {
   finishCallUi();
 });
 $('endCallButton').addEventListener('click', () => endCall(true));
+document.addEventListener('pointerdown', unlockRingtoneAudio, { once: true, passive: true });
 
 (async function bootstrap() {
   try {

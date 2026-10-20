@@ -40,7 +40,7 @@
         <div class="partner-copy"><strong id="partnerName">Wife</strong><span id="connectionStatus" class="connection-status"><i></i><span>Connecting…</span></span></div>
         <button id="callButton" class="call-button" type="button" aria-label="Start voice call"><span aria-hidden="true">☎</span><span>Call</span></button>
       </div>
-      <div id="callPanel" class="call-panel" hidden>
+      <div id="callPanel" class="call-panel" role="alert" aria-live="assertive" hidden>
         <div class="call-info"><div class="call-pulse">☎</div><div><strong id="callTitle">Incoming call</strong><p id="callDescription">Your partner is calling.</p></div></div>
         <div id="incomingActions" class="call-actions"><button id="acceptButton" class="primary-button" type="button">Answer</button><button id="declineButton" class="quiet-button" type="button">Decline</button></div>
         <div id="activeActions" class="call-actions" hidden><button id="endCallButton" class="danger-button" type="button">End call</button></div>
