@@ -351,6 +351,10 @@
         this.emit('open', this.id);
         return;
       }
+      if (message.type === 'call_event') {
+        this.emit('call-event', message);
+        return;
+      }
       if (message.type === 'peer-unavailable') {
         const conn = this.connections.get(message.rtcId);
         if (conn) {
