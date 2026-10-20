@@ -29,6 +29,20 @@ const MIME = {
   '.ico': 'image/x-icon'
 };
 
+function backendConnectSources(root) {
+  const sources = ["'self'"];
+  try {
+    const config = JSON.parse(fs.readFileSync(path.join(root, 'pair-config.json'), 'utf8'));
+    const parsed = new URL(String(config.backendUrl || ''));
+    if (parsed.protocol === 'https:' || parsed.protocol === 'http:') {
+      sources.push(parsed.origin);
+      parsed.protocol = parsed.protocol === 'https:' ? 'wss:' : 'ws:';
+      sources.push(parsed.origin);
+    }
+  } catch {}
+  return sources.join(' ');
+}
+
 function publicRoot() {
   return app.isPackaged
     ? path.join(process.resourcesPath, 'public')
@@ -96,6 +110,7 @@ function createTray() {
 
 function createStaticServer() {
   const root = path.resolve(publicRoot());
+  const connectSources = backendConnectSources(root);
   server = http.createServer((req, res) => {
     let pathname;
     try {
@@ -122,7 +137,7 @@ function createStaticServer() {
         'X-Frame-Options': 'DENY',
         'Referrer-Policy': 'no-referrer',
         'Permissions-Policy': 'microphone=(self), camera=(), geolocation=()',
-        'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self' https://0.peerjs.com wss://0.peerjs.com; media-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
+        'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self'; connect-src ${connectSources}; media-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
         'Cache-Control': path.basename(file) === 'pair-config.json' ? 'no-store' : 'no-cache'
       });
       fs.createReadStream(file).pipe(res);
