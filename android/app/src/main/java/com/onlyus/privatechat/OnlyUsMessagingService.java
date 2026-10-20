@@ -36,7 +36,6 @@ public final class OnlyUsMessagingService extends FirebaseMessagingService {
 
         if ("ringing".equals(event)) {
             String caller = data.getOrDefault("caller", "Your partner");
-            OnlyUsBackend.registerPhoneToken(this, getCurrentTokenFallback(data));
             OnlyUsService.incomingCall(this, callId, caller);
         } else if ("accepted".equals(event) || "rejected".equals(event)
                 || "ended".equals(event) || "missed".equals(event)) {
@@ -44,11 +43,6 @@ public final class OnlyUsMessagingService extends FirebaseMessagingService {
         }
     }
 
-    private String getCurrentTokenFallback(Map<String, String> ignored) {
-        // Token refresh is handled by onNewToken; the service deliberately does not
-        // trigger token retrieval on every call notification.
-        return "";
-    }
 
     static void refreshTokenRegistration(Context context) {
         try {
