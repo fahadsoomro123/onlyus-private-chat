@@ -98,7 +98,7 @@ test('backend health, authentication, and paired WebRTC signaling work', async t
   const ice = await iceResponse.json();
   assert.equal(ice.iceServers.length, 2);
   assert.deepEqual(ice.iceServers[1].urls, ['turn:turn.example.invalid:3478?transport=udp']);
-  assert.match(ice.iceServers[1].username, /^\\d+:onlyus$/);
+  assert.match(ice.iceServers[1].username, /^\d+:onlyus$/);
   assert.ok(ice.iceServers[1].credential.length > 10);
 
   const noPush = await fetch(url + '/v1/call', {
