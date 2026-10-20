@@ -34,11 +34,17 @@ public final class OnlyUsMessagingService extends FirebaseMessagingService {
         String event = data.get("event");
         if (!"incoming_call".equals(type) || callId == null) return;
 
+        android.content.SharedPreferences prefs =
+            getSharedPreferences("onlyus.pending-call", MODE_PRIVATE);
         if ("ringing".equals(event)) {
             String caller = data.getOrDefault("caller", "Your partner");
+            prefs.edit().putString("activePushCallId", callId).putString("activePushCaller", caller).apply();
             OnlyUsService.incomingCall(this, callId, caller);
         } else if ("accepted".equals(event) || "rejected".equals(event)
                 || "ended".equals(event) || "missed".equals(event)) {
+            if (callId.equals(prefs.getString("activePushCallId", ""))) {
+                prefs.edit().remove("activePushCallId").remove("activePushCaller").apply();
+            }
             OnlyUsService.callEnded(this);
         }
     }
