@@ -32,10 +32,13 @@ try {
     initializeApp({ credential: cert(serviceAccount) });
     messaging = getMessaging();
     firestore = getFirestore();
-  } else {
+  } else if (process.env.GOOGLE_APPLICATION_CREDENTIALS ||
+             process.env.GOOGLE_CLOUD_PROJECT || process.env.K_SERVICE) {
     initializeApp({ credential: applicationDefault() });
     messaging = getMessaging();
     firestore = getFirestore();
+  } else {
+    console.warn('Firebase push is not configured: service-account credentials are missing.');
   }
 } catch (error) {
   console.warn('Firebase push is not configured yet:', error.message);
@@ -250,14 +253,13 @@ wss.on('connection', ws => {
   ws.on('error', error => console.warn('WebSocket connection error:', error.message));
 });
 
-try {
-  if (firestore) {
-    const saved = await firestore.collection('onlyus_devices').doc('phone').get();
-    state.phoneFcmToken = saved.exists ? (saved.data().fcmToken || null) : null;
-    state.updatedAt = saved.exists ? (saved.data().updatedAt || null) : null;
-  }
-} catch (error) {
-  console.warn('Could not load saved phone token from Firestore:', error.message);
+if (firestore) {
+  firestore.collection('onlyus_devices').doc('phone').get()
+    .then(saved => {
+      state.phoneFcmToken = saved.exists ? (saved.data().fcmToken || null) : null;
+      state.updatedAt = saved.exists ? (saved.data().updatedAt || null) : null;
+    })
+    .catch(error => console.warn('Could not load saved phone token from Firestore:', error.message));
 }
 
 server.listen(PORT, '0.0.0.0', () => {
