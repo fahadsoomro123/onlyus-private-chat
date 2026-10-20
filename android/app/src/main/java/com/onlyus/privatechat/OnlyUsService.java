@@ -140,6 +140,16 @@ public final class OnlyUsService extends Service {
     }
 
     private PendingIntent callActionIntent(String action, String callId, String caller, int requestCode) {
+        if (OnlyUsCallActionReceiver.ACTION_ANSWER.equals(action)) {
+            Intent intent = new Intent(this, MainActivity.class);
+            intent.setAction(action);
+            intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            if (callId != null) intent.putExtra(OnlyUsCallActionReceiver.EXTRA_CALL_ID, callId);
+            if (caller != null) intent.putExtra(OnlyUsCallActionReceiver.EXTRA_CALLER, caller);
+            return PendingIntent.getActivity(this, requestCode, intent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        }
+
         Intent intent = new Intent(this, OnlyUsCallActionReceiver.class);
         intent.setAction(action);
         if (callId != null) intent.putExtra(OnlyUsCallActionReceiver.EXTRA_CALL_ID, callId);
