@@ -44,6 +44,7 @@ public final class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         OnlyUsService.start(this);
+        handleCallActionIntent(getIntent());
         OnlyUsMessagingService.refreshTokenRegistration(getApplicationContext());
         if (Build.VERSION.SDK_INT >= 33
             && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
@@ -114,6 +115,32 @@ public final class MainActivity extends Activity {
             webView.loadUrl("https://" + ASSET_HOST + "/assets/index.html");
         }
         webView.postDelayed(this::requestBackgroundCallPermission, 1400);
+    }
+
+    private void handleCallActionIntent(Intent intent) {
+        if (intent == null || !OnlyUsCallActionReceiver.ACTION_ANSWER.equals(intent.getAction())) return;
+        String callId = intent.getStringExtra(OnlyUsCallActionReceiver.EXTRA_CALL_ID);
+        String caller = intent.getStringExtra(OnlyUsCallActionReceiver.EXTRA_CALLER);
+        getSharedPreferences("onlyus.pending-call", MODE_PRIVATE).edit()
+            .putString("pendingCallId", callId == null ? "" : callId)
+            .putString("pendingCaller", caller == null ? "Your partner" : caller)
+            .putBoolean("answerNextCall", callId != null && !callId.isEmpty())
+            .apply();
+        if (callId != null && !callId.isEmpty()) {
+            OnlyUsBackend.sendCallEvent(this, "accepted", callId);
+        }
+        OnlyUsService.callEnded(this);
+        if (webView != null) {
+            webView.postDelayed(() -> webView.evaluateJavascript(
+                "window.onlyUsAnswerPendingCall && window.onlyUsAnswerPendingCall();", null), 250);
+        }
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        handleCallActionIntent(intent);
     }
 
     private void requestBackgroundCallPermission() {
