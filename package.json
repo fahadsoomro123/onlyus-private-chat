@@ -1,0 +1,12 @@
+{
+  "name": "only-us-private-chat",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Private peer-to-peer voice and chat for two devices",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "peerjs": "1.5.5"
+  }
+}

@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f6f8fc">
+  <title>Only Us · Private Chat</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="peerjs.min.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <main class="shell">
+    <section id="profileScreen" class="profile-screen">
+      <div class="brand-mark" aria-hidden="true"><span>♡</span></div>
+      <p class="eyebrow">A PRIVATE SPACE FOR TWO</p>
+      <h1>Only Us</h1>
+      <p class="intro">Voice calls and messages, in one simple place.</p>
+      <div class="profile-card">
+        <h2>Who is using this device?</h2>
+        <p class="subtext">Choose your name once. This device will remember it.</p>
+        <button class="profile-option" data-role="fahad" type="button">
+          <span class="avatar avatar-blue">F</span><span class="profile-option-copy"><strong>Fahad</strong><small>My phone</small></span><span class="chevron">›</span>
+        </button>
+        <button class="profile-option" data-role="wife" type="button">
+          <span class="avatar avatar-pink">W</span><span class="profile-option-copy"><strong>Wife</strong><small>Home laptop</small></span><span class="chevron">›</span>
+        </button>
+        <p id="profileStatus" class="status-note" role="status">This app is paired for two devices only.</p>
+      </div>
+      <p class="privacy-foot"><span class="lock-dot"></span> Private pairing · no phone number needed</p>
+    </section>
+
+    <section id="chatScreen" class="chat-screen" hidden>
+      <header class="topbar">
+        <div class="brand-inline"><div class="brand-mark small" aria-hidden="true"><span>♡</span></div><div><strong>Only Us</strong><div class="small-label">Your private space</div></div></div>
+        <button id="changeProfile" class="text-button" type="button">Switch name</button>
+      </header>
+      <div class="partner-card">
+        <div id="partnerAvatar" class="avatar avatar-pink">W</div>
+        <div class="partner-copy"><strong id="partnerName">Wife</strong><span id="connectionStatus" class="connection-status"><i></i><span>Connecting…</span></span></div>
+        <button id="callButton" class="call-button" type="button" aria-label="Start voice call"><span aria-hidden="true">☎</span><span>Call</span></button>
+      </div>
+      <div id="callPanel" class="call-panel" hidden>
+        <div class="call-info"><div class="call-pulse">☎</div><div><strong id="callTitle">Incoming call</strong><p id="callDescription">Your partner is calling.</p></div></div>
+        <div id="incomingActions" class="call-actions"><button id="acceptButton" class="primary-button" type="button">Answer</button><button id="declineButton" class="quiet-button" type="button">Decline</button></div>
+        <div id="activeActions" class="call-actions" hidden><button id="endCallButton" class="danger-button" type="button">End call</button></div>
+      </div>
+      <section class="chat-panel">
+        <div class="chat-heading"><div><h2>Messages</h2><p>Only shared between your two paired devices</p></div><span class="secure-tag"><span>●</span> Private</span></div>
+        <div id="messages" class="messages" aria-live="polite" aria-relevant="additions text"></div>
+        <form id="messageForm" class="composer">
+          <input id="messageInput" type="text" maxlength="2000" autocomplete="off" placeholder="Write a message…" aria-label="Write a message">
+          <button class="send-button" type="submit" aria-label="Send message"><span>Send</span><span aria-hidden="true">➤</span></button>
+        </form>
+        <p id="deliveryHint" class="delivery-hint">Messages sync when both devices are online.</p>
+      </section>
+    </section>
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  </main>
+  <audio id="remoteAudio" autoplay playsinline></audio>
+</body>
+</html>

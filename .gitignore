@@ -1,0 +1,11 @@
+node_modules/
+tools/
+android/.gradle/
+android/**/build/
+android/local.properties
+android/signing.properties
+android/*.jks
+android/app/src/main/assets/pair-config.json
+*.apk
+pair-secret.private
+public/pair-config.json
