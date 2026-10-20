@@ -17,6 +17,13 @@ let peerRetryCount = 0;
 let activeCall = null;
 let incomingCall = null;
 let localAudioStream = null;
+let backendSocket = null;
+let backendReconnectTimer = null;
+let outgoingCallId = null;
+let activeCallId = null;
+let outgoingCallConnected = false;
+let callRetryTimer = null;
+let callTimeoutTimer = null;
 let messages = loadMessages();
 let toastTimer = null;
 let ringtoneContext = null;
@@ -27,6 +34,67 @@ function partnerRole() { return role === 'fahad' ? 'wife' : 'fahad'; }
 function labelFor(value) { return ROLE_LABELS[value] || 'Partner'; }
 function otherPeerId() { return 'onlyus-' + partnerRole() + '-' + settings.roomKey; }
 function localPeerId() { return 'onlyus-' + role + '-' + settings.roomKey; }
+
+function backendBaseUrl() {
+  return String(settings && settings.backendUrl || '').trim().replace(/\/+$/, '');
+}
+function sendBackendCall(eventName, callId) {
+  const base = backendBaseUrl();
+  if (!base || !settings || !settings.roomKey || !callId) return Promise.resolve(false);
+  const from = role === 'fahad' ? 'phone' : 'desktop';
+  return fetch(base + '/v1/call', {
+    method: 'POST',
+    headers: {
+      'Authorization': 'Bearer ' + settings.roomKey,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ from, event: eventName, callId }),
+    cache: 'no-store'
+  }).then(response => response.ok).catch(error => {
+    console.warn('Only Us call signalling is temporarily unavailable:', error && error.message);
+    return false;
+  });
+}
+function connectBackendSocket() {
+  const base = backendBaseUrl();
+  if (!base || !settings || !settings.roomKey || !role || backendSocket) return;
+  const socketUrl = base.replace(/^https:/i, 'wss:').replace(/^http:/i, 'ws:') + '/ws';
+  let socket;
+  try { socket = new WebSocket(socketUrl); } catch { return; }
+  backendSocket = socket;
+  socket.addEventListener('open', () => {
+    if (backendSocket !== socket) return;
+    socket.send(JSON.stringify({
+      type: 'auth',
+      device: role === 'fahad' ? 'phone' : 'desktop',
+      token: settings.roomKey
+    }));
+  });
+  socket.addEventListener('message', event => {
+    let message;
+    try { message = JSON.parse(event.data); } catch { return; }
+    if (message.type !== 'call_event' || !message.callId) return;
+    const currentId = outgoingCallId || activeCallId || (incomingCall && incomingCall.metadata && incomingCall.metadata.callId);
+    if (message.callId !== currentId) return;
+    if (['rejected', 'missed', 'ended'].includes(message.event)) {
+      endCall(false, false);
+      showToast(message.event === 'rejected' ? 'Call declined.' : 'Call ended.');
+    }
+  });
+  socket.addEventListener('close', () => {
+    if (backendSocket === socket) backendSocket = null;
+    if (backendReconnectTimer) clearTimeout(backendReconnectTimer);
+    if (role && backendBaseUrl()) {
+      backendReconnectTimer = setTimeout(() => {
+        backendReconnectTimer = null;
+        connectBackendSocket();
+      }, 3500);
+    }
+  });
+  socket.addEventListener('error', () => {
+    try { socket.close(); } catch {}
+  });
+}
 function setStatus(text, online = false) {
   const status = $('connectionStatus');
   status.classList.toggle('online', online);
@@ -284,6 +352,7 @@ function initRole(selectedRole) {
   endCall(false);
   role = selectedRole;
   localStorage.setItem(PROFILE_KEY, role);
+  connectBackendSocket();
   $('profileScreen').hidden = true;
   $('chatScreen').hidden = false;
   $('partnerName').textContent = labelFor(partnerRole());
@@ -337,6 +406,11 @@ function initRole(selectedRole) {
       }
     });
     startRingtone();
+    const incomingId = call.metadata && call.metadata.callId;
+    if (incomingId) activeCallId = incomingId;
+    let shouldAnswer = false;
+    try { shouldAnswer = window.AndroidOnlyUs?.shouldAutoAnswer?.(incomingId) === true; } catch {}
+    if (shouldAnswer) acceptCall();
   });
   peer.on('disconnected', () => {
     setStatus('Reconnecting to private network…');
@@ -401,15 +475,37 @@ function showActiveCall(title, description) {
 }
 function wireCall(call) {
   call.on('stream', stream => {
+    if (outgoingCallId && call.metadata && call.metadata.callId === outgoingCallId) {
+      outgoingCallConnected = true;
+      activeCallId = outgoingCallId;
+      if (callRetryTimer) clearTimeout(callRetryTimer);
+      if (callTimeoutTimer) clearTimeout(callTimeoutTimer);
+      callRetryTimer = null;
+      callTimeoutTimer = null;
+    }
     $('remoteAudio').srcObject = stream;
     const p = $('remoteAudio').play();
     if (p && typeof p.catch === 'function') p.catch(() => showToast('Tap the call panel once to enable speaker audio.'));
     showActiveCall('In call with ' + labelFor(partnerRole()), 'Voice call is connected. Microphone is on.');
   });
   call.on('close', () => {
-    if (activeCall === call || incomingCall === call) finishCallUi();
+    const isCurrent = activeCall === call || incomingCall === call;
+    if (!isCurrent) return;
+    if (outgoingCallId && !outgoingCallConnected &&
+        call.metadata && call.metadata.callId === outgoingCallId) {
+      if (activeCall === call) activeCall = null;
+      scheduleOutgoingRetry(outgoingCallId);
+      return;
+    }
+    finishCallUi();
   });
   call.on('error', err => {
+    if (outgoingCallId && !outgoingCallConnected &&
+        call.metadata && call.metadata.callId === outgoingCallId) {
+      if (activeCall === call) activeCall = null;
+      scheduleOutgoingRetry(outgoingCallId);
+      return;
+    }
     const text = err && err.type === 'peer-unavailable'
       ? labelFor(partnerRole()) + ' is not online yet.'
       : 'The call could not connect. Try again.';
@@ -417,19 +513,54 @@ function wireCall(call) {
     if (activeCall === call || incomingCall === call) finishCallUi();
   });
 }
+function scheduleOutgoingRetry(callId) {
+  if (!callId || callId !== outgoingCallId || outgoingCallConnected || callRetryTimer) return;
+  callRetryTimer = setTimeout(() => {
+    callRetryTimer = null;
+    attemptOutgoingCall(callId);
+  }, 1500);
+}
+function attemptOutgoingCall(callId) {
+  if (!callId || callId !== outgoingCallId || outgoingCallConnected) return;
+  if (!peer || !peer.open) {
+    scheduleOutgoingRetry(callId);
+    return;
+  }
+  if (activeCall) return;
+  const call = peer.call(otherPeerId(), localAudioStream, {
+    metadata: { from: role, label: labelFor(role), callId }
+  });
+  if (!call) {
+    scheduleOutgoingRetry(callId);
+    return;
+  }
+  activeCall = call;
+  wireCall(call);
+}
 async function startCall() {
   if (!peer || !peer.open) { showToast('Connecting to the private network. Try again in a moment.'); return; }
-  if (activeCall || incomingCall) return;
+  if (activeCall || incomingCall || outgoingCallId) return;
   stopRingtone();
   try {
     localAudioStream = await getMicrophone();
-    const call = peer.call(otherPeerId(), localAudioStream, { metadata: { from: role, label: labelFor(role) } });
-    if (!call) throw new Error('Could not start call.');
-    activeCall = call;
+    outgoingCallId = makeId();
+    activeCallId = outgoingCallId;
+    outgoingCallConnected = false;
+    const callId = outgoingCallId;
     showActiveCall('Calling ' + labelFor(partnerRole()) + '…', 'Waiting for an answer.');
-    wireCall(call);
+    sendBackendCall('ringing', callId);
+    attemptOutgoingCall(callId);
+    callTimeoutTimer = setTimeout(() => {
+      if (outgoingCallId !== callId) return;
+      sendBackendCall('missed', callId);
+      endCall(false, false);
+      showToast('No answer. Try calling again.');
+    }, 65000);
   } catch (error) {
     stopLocalAudio();
+    outgoingCallId = null;
+    activeCallId = null;
+    outgoingCallConnected = false;
     console.error('Only Us microphone capture failed:', error && error.name, error && error.message);
     const name = error && error.name ? error.name : 'UnknownError';
     const guidance = name === 'NotReadableError'
@@ -446,6 +577,8 @@ async function acceptCall() {
   stopRingtone();
   try {
     localAudioStream = await getMicrophone();
+    activeCallId = call.metadata && call.metadata.callId || activeCallId;
+    if (activeCallId) sendBackendCall('accepted', activeCallId);
     activeCall = call;
     call.answer(localAudioStream);
     showActiveCall('Connecting call…', 'Please wait a moment.');
@@ -470,21 +603,42 @@ function stopLocalAudio() {
   }
   $('remoteAudio').srcObject = null;
 }
-function finishCallUi() {
+function finishCallUi(notifyBackend = true) {
+  const callId = activeCallId || outgoingCallId || (incomingCall && incomingCall.metadata && incomingCall.metadata.callId);
+  if (notifyBackend && callId) sendBackendCall('ended', callId);
+  if (callRetryTimer) clearTimeout(callRetryTimer);
+  if (callTimeoutTimer) clearTimeout(callTimeoutTimer);
+  callRetryTimer = null;
+  callTimeoutTimer = null;
+  try { window.AndroidOnlyUs?.callEnded?.(); } catch {}
   try { window.onlyUsDesktop?.callEnded?.(); } catch {}
   stopRingtone();
   activeCall = null;
   incomingCall = null;
+  outgoingCallId = null;
+  activeCallId = null;
+  outgoingCallConnected = false;
   stopLocalAudio();
   $('callPanel').hidden = true;
   $('incomingActions').hidden = false;
   $('activeActions').hidden = true;
 }
-function endCall(closeRemote = true) {
+function endCall(closeRemote = true, notifyBackend = true) {
+  const callId = activeCallId || outgoingCallId || (incomingCall && incomingCall.metadata && incomingCall.metadata.callId);
+  if (notifyBackend && callId) sendBackendCall('ended', callId);
+  if (callRetryTimer) clearTimeout(callRetryTimer);
+  if (callTimeoutTimer) clearTimeout(callTimeoutTimer);
+  callRetryTimer = null;
+  callTimeoutTimer = null;
+  try { window.AndroidOnlyUs?.callEnded?.(); } catch {}
+  try { window.onlyUsDesktop?.callEnded?.(); } catch {}
   stopRingtone();
   const call = activeCall || incomingCall;
   activeCall = null;
   incomingCall = null;
+  outgoingCallId = null;
+  activeCallId = null;
+  outgoingCallConnected = false;
   if (closeRemote && call) { try { call.close(); } catch {} }
   stopLocalAudio();
   if ($('callPanel')) {
@@ -526,6 +680,9 @@ $('changeProfile').addEventListener('click', () => {
   if (peer) { try { peer.destroy(); } catch {} peer = null; }
   if (dialTimer) { clearInterval(dialTimer); dialTimer = null; }
   dataConnection = null;
+  if (backendReconnectTimer) clearTimeout(backendReconnectTimer);
+  backendReconnectTimer = null;
+  if (backendSocket) { try { backendSocket.close(); } catch {} backendSocket = null; }
   localStorage.removeItem(PROFILE_KEY);
   role = null;
   $('chatScreen').hidden = true;
@@ -542,8 +699,14 @@ $('messageForm').addEventListener('submit', event => {
 $('callButton').addEventListener('click', startCall);
 $('acceptButton').addEventListener('click', acceptCall);
 $('declineButton').addEventListener('click', () => {
-  if (incomingCall) { try { incomingCall.close(); } catch {} }
-  finishCallUi();
+  const callId = incomingCall && incomingCall.metadata && incomingCall.metadata.callId || activeCallId;
+  if (callId) sendBackendCall('rejected', callId);
+  const call = incomingCall;
+  incomingCall = null;
+  activeCall = null;
+  activeCallId = null;
+  if (call) { try { call.close(); } catch {} }
+  finishCallUi(false);
 });
 $('endCallButton').addEventListener('click', () => endCall(true));
 document.addEventListener('pointerdown', unlockRingtoneAudio, { once: true, passive: true });
