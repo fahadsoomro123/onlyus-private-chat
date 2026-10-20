@@ -145,7 +145,7 @@ const server = http.createServer(async (req, res) => {
     const wsDelivered = sendTo(recipient, event);
     let pushDelivered = false;
 
-    if (body.event === 'ringing' && recipient === 'phone' && state.phoneFcmToken && messaging) {
+    if (recipient === 'phone' && state.phoneFcmToken && messaging) {
       try {
         await messaging.send({
           token: state.phoneFcmToken,
