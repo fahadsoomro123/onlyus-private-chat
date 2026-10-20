@@ -2,7 +2,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { WebSocketServer } from 'ws';
+import { WebSocket, WebSocketServer } from 'ws';
 import { applicationDefault, cert, getApps, initializeApp } from 'firebase-admin/app';
 import { getMessaging } from 'firebase-admin/messaging';
 
@@ -210,7 +210,7 @@ wss.on('connection', ws => {
       clearTimeout(timeout);
       ws.device = message.device;
       const previous = connected.get(ws.device);
-      if (previous && previous !== ws && previous.readyState === previous.OPEN) {
+      if (previous && previous !== ws && previous.readyState === WebSocket.OPEN) {
         try { previous.close(4001, 'replaced by a newer connection'); } catch {}
       }
       connected.set(ws.device, ws);
@@ -282,7 +282,7 @@ function buildIceServers() {
 }
 
 function isOpen(ws) {
-  return Boolean(ws && ws.readyState === ws.OPEN);
+  return Boolean(ws && ws.readyState === WebSocket.OPEN);
 }
 
 function sendTo(device, payload) {
