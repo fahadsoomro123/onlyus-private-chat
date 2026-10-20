@@ -12,6 +12,11 @@ A simple private two-device voice and chat app. The PC version runs on the home 
 2. Open it and choose **Fahad** once.
 3. Keep the app open while you want to receive calls.
 
+## GitHub Pages desktop version
+The hosted browser version is published from `public/` with GitHub Pages. The hosted copy intentionally does not include `pair-config.json` or the private pairing key. On the home laptop, enter the 48-character key from `pair-secret.private` once in the hosted setup panel, then choose **Wife**. The key is saved only in that browser's local storage; it is not uploaded to GitHub. The Android app continues to use its private bundled configuration and should be opened as **Fahad**.
+
+Never commit or publish `pair-secret.private`, either `pair-config.json`, signing keys, or an APK that contains your pairing ID. The Pages workflow checks for these files before publishing.
+
 ## What it does
 - Live voice calls using browser/WebView WebRTC.
 - Chat between the two paired app instances.

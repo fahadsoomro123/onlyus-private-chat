@@ -2,6 +2,7 @@
 
 const $ = (id) => document.getElementById(id);
 const PROFILE_KEY = 'onlyus.profile.v1';
+const ROOM_KEY = 'onlyus.room-key.v1';
 const MESSAGE_KEY = 'onlyus.messages.v1';
 const MAX_MESSAGES = 500;
 const ROLE_LABELS = { fahad: 'Fahad', wife: 'Wife' };
@@ -416,7 +417,25 @@ function sendMessage(text) {
   if (dataConnection && dataConnection.open) sendPayload({ type: 'chat', message: msg });
 }
 
-document.querySelectorAll('[data-role]').forEach(button => button.addEventListener('click', () => initRole(button.dataset.role)));
+document.querySelectorAll('[data-role]').forEach(button => button.addEventListener('click', () => {
+  if (!settings) { showToast('Enter your private pairing key first.'); $('pairCode').focus(); return; }
+  initRole(button.dataset.role);
+}));
+$('pairSetupForm').addEventListener('submit', event => {
+  event.preventDefault();
+  const roomKey = $('pairCode').value.trim().toLowerCase();
+  if (!/^[a-f0-9]{48}$/.test(roomKey)) {
+    $('pairSetupError').textContent = 'That key is not valid. Copy all 48 characters and try again.';
+    return;
+  }
+  settings = { roomKey };
+  localStorage.setItem(ROOM_KEY, roomKey);
+  $('pairSetup').hidden = true;
+  $('pairSetupError').textContent = '';
+  $('profileStatus').textContent = 'Private pairing key saved in this browser.';
+  const savedRole = localStorage.getItem(PROFILE_KEY);
+  if (['fahad', 'wife'].includes(savedRole)) initRole(savedRole);
+});
 $('changeProfile').addEventListener('click', () => {
   stopRingtone();
   endCall();
@@ -446,15 +465,32 @@ $('endCallButton').addEventListener('click', () => endCall(true));
 document.addEventListener('pointerdown', unlockRingtoneAudio, { once: true, passive: true });
 
 (async function bootstrap() {
+  let configured = false;
   try {
     const response = await fetch('pair-config.json', { cache: 'no-store' });
-    if (!response.ok) throw new Error('pair config unavailable');
-    settings = await response.json();
-    if (typeof settings.roomKey !== 'string' || !/^[a-f0-9]{48}$/.test(settings.roomKey)) throw new Error('invalid pairing config');
-    const savedRole = localStorage.getItem(PROFILE_KEY);
-    if (['fahad', 'wife'].includes(savedRole)) initRole(savedRole);
-  } catch {
-    $('profileStatus').textContent = 'Setup could not load. Close the app and check its files.';
-    showToast('Only Us setup could not load.');
+    if (response.ok) {
+      const candidate = await response.json();
+      if (candidate && typeof candidate.roomKey === 'string' && /^[a-f0-9]{48}$/.test(candidate.roomKey)) {
+        settings = candidate;
+        configured = true;
+      }
+    }
+  } catch {}
+
+  if (!configured) {
+    const savedKey = localStorage.getItem(ROOM_KEY) || '';
+    if (/^[a-f0-9]{48}$/.test(savedKey)) {
+      settings = { roomKey: savedKey };
+      configured = true;
+    }
   }
+
+  if (!configured) {
+    $('pairSetup').hidden = false;
+    $('profileStatus').textContent = 'Enter your private pairing key to connect this browser to your phone.';
+    return;
+  }
+
+  const savedRole = localStorage.getItem(PROFILE_KEY);
+  if (['fahad', 'wife'].includes(savedRole)) initRole(savedRole);
 })();
