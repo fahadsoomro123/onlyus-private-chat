@@ -20,15 +20,6 @@ if (PAIR_TOKEN.length < 32) {
 }
 
 let state = { phoneFcmToken: null, updatedAt: null };
-try {
-  const saved = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
-  if (saved && typeof saved === 'object') state = { ...state, ...saved };
-} catch (error) {
-  if (error.code !== 'ENOENT') {
-    console.error('Could not read device state:', error.message);
-    process.exit(1);
-  }
-}
 
 let messaging = null;
 let firestore = null;
@@ -151,7 +142,7 @@ const server = http.createServer(async (req, res) => {
     const wsDelivered = sendTo(recipient, event);
     let pushDelivered = false;
 
-    if (recipient === 'phone' && state.phoneFcmToken && messaging) {
+    if (body.event === 'ringing' && recipient === 'phone' && state.phoneFcmToken && messaging) {
       try {
         await messaging.send({
           token: state.phoneFcmToken,
