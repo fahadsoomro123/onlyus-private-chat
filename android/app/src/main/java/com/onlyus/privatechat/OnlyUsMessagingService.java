@@ -42,10 +42,11 @@ public final class OnlyUsMessagingService extends FirebaseMessagingService {
             OnlyUsService.incomingCall(this, callId, caller);
         } else if ("accepted".equals(event) || "rejected".equals(event)
                 || "ended".equals(event) || "missed".equals(event)) {
+            // A delayed terminal push for an older call must never silence a newer ringing call.
             if (callId.equals(prefs.getString("activePushCallId", ""))) {
                 prefs.edit().remove("activePushCallId").remove("activePushCaller").apply();
+                OnlyUsService.callEnded(this);
             }
-            OnlyUsService.callEnded(this);
         }
     }
 
