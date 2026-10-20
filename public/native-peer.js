@@ -379,11 +379,9 @@
         const conn = this.connections.get(message.rtcId);
         if (conn) {
           conn.emit('error', normalError('peer-unavailable', 'Partner is not connected yet.'));
-          if (conn instanceof NativeMediaConnection && !conn.connected) {
-            setTimeout(() => {
-              if (!conn.closed && !conn.connected) conn.close(false);
-            }, 0);
-          }
+          setTimeout(() => {
+            if (!conn.closed && !conn.connected) conn.close(false);
+          }, 0);
         }
         return;
       }
