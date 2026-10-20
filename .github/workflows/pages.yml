@@ -26,7 +26,7 @@ jobs:
       - name: Ensure private pairing files are never published
         shell: bash
         run: |
-          if git ls-files | grep -E '(^|/)(pair-config\.json|pair-secret\.private|.*\.apk|.*\.idsig|.*\.jks|\.env(\..*)?)$'; then
+          if git ls-files | grep -E '(pair-config|pair-secret|apk$|idsig$|jks$|(^|/)[.]env([.]|$))'; then
             echo 'Refusing to publish a pairing key, APK, signing key, or environment file.'
             exit 1
           fi
