@@ -66,10 +66,7 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'GET' && url.pathname === '/healthz') {
     return json(res, 200, {
       ok: true,
-      pushConfigured: Boolean(messaging),
-      phoneRegistered: Boolean(state.phoneFcmToken),
-      desktopConnected: isOpen(connected.get('desktop')),
-      phoneSocketConnected: isOpen(connected.get('phone'))
+      service: 'onlyus-signaling'
     });
   }
 
