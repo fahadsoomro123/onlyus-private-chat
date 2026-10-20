@@ -5,6 +5,7 @@ const PROFILE_KEY = 'onlyus.profile.v1';
 const MESSAGE_KEY = 'onlyus.messages.v1';
 const MAX_MESSAGES = 500;
 const ROLE_LABELS = { fahad: 'Fahad', wife: 'Wife' };
+const DEFAULT_BACKEND_URL = ''; // filled only after the private backend is deployed
 
 let settings = null;
 let role = null;
@@ -16,8 +17,6 @@ let peerRetryCount = 0;
 let activeCall = null;
 let incomingCall = null;
 let localAudioStream = null;
-let backendSocket = null;
-let backendReconnectTimer = null;
 let outgoingCallId = null;
 let activeCallId = null;
 let outgoingCallConnected = false;
@@ -75,46 +74,6 @@ function sendBackendCall(eventName, callId) {
   }).then(response => response.ok).catch(error => {
     console.warn('Only Us call signalling is temporarily unavailable:', error && error.message);
     return false;
-  });
-}
-function connectBackendSocket() {
-  const base = backendBaseUrl();
-  if (!base || !settings || !settings.roomKey || !role || backendSocket) return;
-  const socketUrl = base.replace(/^https:/i, 'wss:').replace(/^http:/i, 'ws:') + '/ws';
-  let socket;
-  try { socket = new WebSocket(socketUrl); } catch { return; }
-  backendSocket = socket;
-  socket.addEventListener('open', () => {
-    if (backendSocket !== socket) return;
-    socket.send(JSON.stringify({
-      type: 'auth',
-      device: role === 'fahad' ? 'phone' : 'desktop',
-      token: settings.roomKey
-    }));
-  });
-  socket.addEventListener('message', event => {
-    let message;
-    try { message = JSON.parse(event.data); } catch { return; }
-    if (message.type !== 'call_event' || !message.callId) return;
-    const currentId = outgoingCallId || activeCallId || (incomingCall && incomingCall.metadata && incomingCall.metadata.callId);
-    if (message.callId !== currentId) return;
-    if (['rejected', 'missed', 'ended'].includes(message.event)) {
-      endCall(false, false);
-      showToast(message.event === 'rejected' ? 'Call declined.' : 'Call ended.');
-    }
-  });
-  socket.addEventListener('close', () => {
-    if (backendSocket === socket) backendSocket = null;
-    if (backendReconnectTimer) clearTimeout(backendReconnectTimer);
-    if (role && backendBaseUrl()) {
-      backendReconnectTimer = setTimeout(() => {
-        backendReconnectTimer = null;
-        connectBackendSocket();
-      }, 3500);
-    }
-  });
-  socket.addEventListener('error', () => {
-    try { socket.close(); } catch {}
   });
 }
 function setStatus(text, online = false) {
@@ -369,13 +328,17 @@ async function initRole(selectedRole) {
     showToast('The app could not start. Close it and try again with an Internet connection.');
     return;
   }
+  if (!backendBaseUrl()) {
+    setStatus('Private server setup is required');
+    showToast('Only Us 2.0 needs its private server configured before it can connect.');
+    return;
+  }
   unlockRingtoneAudio();
   if (peer) { try { peer.destroy(); } catch {} }
   if (dialTimer) { clearInterval(dialTimer); dialTimer = null; }
   endCall(false);
   role = selectedRole;
   localStorage.setItem(PROFILE_KEY, role);
-  connectBackendSocket();
   $('profileScreen').hidden = true;
   $('chatScreen').hidden = false;
   $('partnerName').textContent = labelFor(partnerRole());
@@ -386,19 +349,24 @@ async function initRole(selectedRole) {
   setStatus('Connecting to private network…');
   const iceServers = await getIceServers();
   if (initGeneration !== roleInitGeneration || role !== selectedRole) return;
+  window.OnlyUsRuntime = { backendUrl: backendBaseUrl(), roomKey: settings.roomKey, role };
   try {
-    peer = new Peer(localPeerId(), {
-      host: settings.peerHost || '0.peerjs.com',
-      port: Number(settings.peerPort || 443),
-      secure: true,
-      config: { iceServers },
-      debug: 1
-    });
+    peer = new Peer(localPeerId(), { config: { iceServers } });
   } catch {
     setStatus('Could not start connection');
     showToast('Connection setup failed. Check the Internet connection.');
     return;
   }
+  peer.on('call-event', message => {
+    const currentId = outgoingCallId || activeCallId ||
+      (incomingCall && incomingCall.metadata && incomingCall.metadata.callId);
+    if (!message || message.callId !== currentId) return;
+    if (message.event === 'rejected' || message.event === 'missed' || message.event === 'ended') {
+      const reason = message.event;
+      endCall(false, false);
+      showToast(reason === 'rejected' ? 'Call declined.' : reason === 'missed' ? 'No answer.' : 'Call ended.');
+    }
+  });
   peer.on('open', () => {
     peerRetryCount = 0;
     setStatus('Waiting for ' + labelFor(partnerRole()));
@@ -440,8 +408,7 @@ async function initRole(selectedRole) {
   });
   peer.on('disconnected', () => {
     setStatus('Reconnecting to private network…');
-    // Re-open the PeerJS signalling connection after a transient server drop.
-    // Without this, the UI can remain stuck on “Reconnecting…” indefinitely.
+    // Re-open the private signalling connection after a transient server drop.
     if (peer && !peer.destroyed) {
       try { peer.reconnect(); } catch {}
     }
@@ -456,6 +423,9 @@ async function initRole(selectedRole) {
       setStatus('Waiting for ' + labelFor(partnerRole()));
     } else if (['network', 'server-error', 'socket-error', 'socket-closed', 'disconnected'].includes(type)) {
       schedulePeerRestart(type);
+    } else if (type === 'configuration') {
+      setStatus('Private server setup is required');
+      showToast('Only Us 2.0 needs its private server configured.');
     } else if (type === 'webrtc') {
       setStatus('Device-to-device connection failed (webrtc)');
       showToast('The network blocked the direct connection. A TURN relay may be needed.');
@@ -698,9 +668,6 @@ $('changeProfile').addEventListener('click', () => {
   if (peer) { try { peer.destroy(); } catch {} peer = null; }
   if (dialTimer) { clearInterval(dialTimer); dialTimer = null; }
   dataConnection = null;
-  if (backendReconnectTimer) clearTimeout(backendReconnectTimer);
-  backendReconnectTimer = null;
-  if (backendSocket) { try { backendSocket.close(); } catch {} backendSocket = null; }
   localStorage.removeItem(PROFILE_KEY);
   role = null;
   $('chatScreen').hidden = true;
@@ -734,6 +701,7 @@ document.addEventListener('pointerdown', unlockRingtoneAudio, { once: true, pass
     const response = await fetch('pair-config.json', { cache: 'no-store' });
     if (!response.ok) throw new Error('pair config unavailable');
     settings = await response.json();
+    if (!settings.backendUrl) settings.backendUrl = DEFAULT_BACKEND_URL;
     if (typeof settings.roomKey !== 'string' || !/^[a-f0-9]{48}$/.test(settings.roomKey)) throw new Error('invalid pairing config');
     const savedRole = localStorage.getItem(PROFILE_KEY);
     if (['fahad', 'wife'].includes(savedRole)) initRole(savedRole);
