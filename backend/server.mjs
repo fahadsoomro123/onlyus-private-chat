@@ -45,6 +45,7 @@ try {
 }
 
 const connected = new Map();
+const rtcSessions = new Map();
 const server = http.createServer(async (req, res) => {
   const origin = req.headers.origin;
   if (origin && ALLOWED_ORIGINS.has(origin)) {
@@ -185,7 +186,15 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-const wss = new WebSocketServer({ noServer: true, maxPayload: 8192 });
+const rtcSessionSweep = setInterval(() => {
+  const cutoff = Date.now() - 10 * 60 * 1000;
+  for (const [rtcId, session] of rtcSessions) {
+    if (session.updatedAt < cutoff) rtcSessions.delete(rtcId);
+  }
+}, 60 * 1000);
+rtcSessionSweep.unref?.();
+
+const wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 });
 server.on('upgrade', (req, socket, head) => {
   const url = new URL(req.url || '/', 'http://localhost');
   if (url.pathname !== '/ws') {
@@ -230,6 +239,83 @@ wss.on('connection', ws => {
 
     if (message.type === 'ping') {
       send(ws, { type: 'pong', at: Date.now() });
+      return;
+    }
+
+    if (message.type === 'signal') {
+      const signalTypes = new Set(['offer', 'answer', 'ice', 'cancel']);
+      if (typeof message.rtcId !== 'string' ||
+          !/^[a-zA-Z0-9_-]{8,100}$/.test(message.rtcId) ||
+          typeof message.callId !== 'string' ||
+          !/^[a-zA-Z0-9_-]{8,100}$/.test(message.callId) ||
+          !signalTypes.has(message.signalType)) {
+        ws.close(4400, 'invalid signalling payload');
+        return;
+      }
+
+      let session = rtcSessions.get(message.rtcId);
+      if (message.signalType === 'offer') {
+        const kind = message.metadata && message.metadata.kind;
+        if (!['media', 'data'].includes(kind) ||
+            !message.signal || message.signal.type !== 'offer' ||
+            typeof message.signal.sdp !== 'string' ||
+            message.signal.sdp.length > 48 * 1024 ||
+            rtcSessions.has(message.rtcId)) {
+          ws.close(4400, 'invalid offer');
+          return;
+        }
+        session = {
+          rtcId: message.rtcId,
+          callId: message.callId,
+          callerDevice: ws.device,
+          calleeDevice: ws.device === 'phone' ? 'desktop' : 'phone',
+          kind,
+          metadata: {
+            kind,
+            callId: message.callId,
+            from: ws.device === 'phone' ? 'fahad' : 'wife',
+            label: ws.device === 'phone' ? 'Fahad' : 'Wife'
+          },
+          updatedAt: Date.now()
+        };
+        rtcSessions.set(message.rtcId, session);
+      } else {
+        if (!session || session.callId !== message.callId ||
+            ![session.callerDevice, session.calleeDevice].includes(ws.device)) {
+          return;
+        }
+        if (message.signalType === 'answer' &&
+            (!message.signal || message.signal.type !== 'answer' ||
+             typeof message.signal.sdp !== 'string' || message.signal.sdp.length > 48 * 1024)) {
+          ws.close(4400, 'invalid answer');
+          return;
+        }
+        if (message.signalType === 'ice' &&
+            message.signal && typeof message.signal.candidate === 'string' &&
+            message.signal.candidate.length > 4096) {
+          ws.close(4400, 'invalid ICE candidate');
+          return;
+        }
+        session.updatedAt = Date.now();
+      }
+
+      const recipient = ws.device === session.callerDevice ? session.calleeDevice : session.callerDevice;
+      if (!sendTo(recipient, {
+        type: 'signal',
+        from: ws.device,
+        rtcId: session.rtcId,
+        callId: session.callId,
+        signalType: message.signalType,
+        metadata: session.metadata,
+        signal: message.signal
+      })) {
+        send(ws, { type: 'peer-unavailable', rtcId: session.rtcId, callId: session.callId });
+        if (message.signalType === 'offer' || message.signalType === 'cancel') {
+          rtcSessions.delete(session.rtcId);
+        }
+        return;
+      }
+      if (message.signalType === 'cancel') rtcSessions.delete(session.rtcId);
       return;
     }
     if (message.type === 'call_event' &&
