@@ -64,7 +64,9 @@ async function connectDevice(url, device, token = TOKEN) {
 test('backend health, authentication, and paired WebRTC signaling work', async t => {
   const port = await freePort();
   const url = 'http://127.0.0.1:' + port;
-  const childEnv = { ...process.env, PORT: String(port), ONLYUS_PAIR_TOKEN: TOKEN,\n    ONLYUS_TURN_URLS: 'turn:turn.example.invalid:3478?transport=udp',\n    ONLYUS_TURN_SHARED_SECRET: TURN_SECRET };
+  const childEnv = { ...process.env, PORT: String(port), ONLYUS_PAIR_TOKEN: TOKEN,
+    ONLYUS_TURN_URLS: 'turn:turn.example.invalid:3478?transport=udp',
+    ONLYUS_TURN_SHARED_SECRET: TURN_SECRET };
   for (const key of ['FIREBASE_SERVICE_ACCOUNT_JSON', 'GOOGLE_APPLICATION_CREDENTIALS', 'GOOGLE_CLOUD_PROJECT', 'K_SERVICE']) {
     delete childEnv[key];
   }
