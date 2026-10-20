@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: onlyus-signaling
+    runtime: node
+    plan: starter
+    rootDir: backend
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    healthCheckPath: /healthz
+    autoDeploy: false
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: ONLYUS_PAIR_TOKEN
+        sync: false
+      - key: FIREBASE_SERVICE_ACCOUNT_JSON
+        sync: false
+      - key: ONLYUS_TURN_URLS
+        sync: false
+      - key: ONLYUS_TURN_SHARED_SECRET
+        sync: false
