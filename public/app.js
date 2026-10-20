@@ -681,6 +681,16 @@ function sendMessage(text) {
   if (dataConnection && dataConnection.open) sendPayload({ type: 'chat', message: msg });
 }
 
+window.onlyUsAnswerPendingCall = function () {
+  const callId = incomingCall && incomingCall.metadata && incomingCall.metadata.callId || activeCallId;
+  if (!callId) return;
+  try {
+    if (window.AndroidOnlyUs?.shouldAutoAnswer?.(callId) === true) acceptCall();
+  } catch (error) {
+    console.warn('Only Us could not answer the pending notification call:', error && error.message);
+  }
+};
+
 document.querySelectorAll('[data-role]').forEach(button => button.addEventListener('click', () => {
   if (!settings) { showToast('Enter your private pairing key first.'); $('pairCode').focus(); return; }
   initRole(button.dataset.role);
