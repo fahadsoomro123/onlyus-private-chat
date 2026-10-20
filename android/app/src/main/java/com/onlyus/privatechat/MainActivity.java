@@ -201,8 +201,8 @@ public final class MainActivity extends Activity {
         }
 
         @JavascriptInterface
-        public void incomingCall() {
-            OnlyUsService.incomingCall(appContext);
+        public void incomingCall(String callId, String caller) {
+            OnlyUsService.incomingCall(appContext, callId, caller);
         }
 
         @JavascriptInterface
