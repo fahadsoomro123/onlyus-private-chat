@@ -11,6 +11,8 @@ let role = null;
 let peer = null;
 let dataConnection = null;
 let dialTimer = null;
+let peerRetryTimer = null;
+let peerRetryCount = 0;
 let activeCall = null;
 let incomingCall = null;
 let localAudioStream = null;
@@ -231,9 +233,17 @@ function startDialLoop() {
   if (role !== 'fahad' || dialTimer) return;
   const attempt = () => {
     if (!peer || peer.destroyed || !peer.open) return;
-    if (dataConnection && dataConnection.open) return; if (dataConnection) { try { dataConnection.close(); } catch {} dataConnection = null; }
+    if (dataConnection && dataConnection.open) return;
+    if (dataConnection) {
+      const age = Date.now() - Number(dataConnection.__onlyUsStartedAt || 0);
+      // Do not keep cancelling a slow connection every seven seconds.
+      if (age < 20000) return;
+      try { dataConnection.close(); } catch {}
+      dataConnection = null;
+    }
     try {
       const conn = peer.connect(otherPeerId(), { reliable: true, serialization: 'json' });
+      conn.__onlyUsStartedAt = Date.now();
       attachDataConnection(conn);
       conn.on('error', () => { if (dataConnection === conn) dataConnection = null; });
     } catch {}
@@ -241,7 +251,22 @@ function startDialLoop() {
   attempt();
   dialTimer = setInterval(attempt, 7000);
 }
+function schedulePeerRestart(reason) {
+  if (!role || peerRetryTimer) return;
+  const roleToRestore = role;
+  const waitMs = Math.min(30000, 1500 * (2 ** Math.min(peerRetryCount, 4)));
+  peerRetryCount += 1;
+  if (dialTimer) { clearInterval(dialTimer); dialTimer = null; }
+  if (dataConnection) { try { dataConnection.close(); } catch {} dataConnection = null; }
+  setStatus('Connection error (' + reason + '). Retrying…');
+  peerRetryTimer = setTimeout(() => {
+    peerRetryTimer = null;
+    if (role === roleToRestore) initRole(roleToRestore);
+  }, waitMs);
+}
+
 function initRole(selectedRole) {
+  if (peerRetryTimer) { clearTimeout(peerRetryTimer); peerRetryTimer = null; }
   if (!settings || !['fahad', 'wife'].includes(selectedRole) || !window.Peer) {
     showToast('The app could not start. Close it and try again with an Internet connection.');
     return;
@@ -265,7 +290,7 @@ function initRole(selectedRole) {
       host: settings.peerHost || '0.peerjs.com',
       port: Number(settings.peerPort || 443),
       secure: true,
-      config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] },
+      config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun.cloudflare.com:3478' }] },
       debug: 1
     });
   } catch {
@@ -274,6 +299,7 @@ function initRole(selectedRole) {
     return;
   }
   peer.on('open', () => {
+    peerRetryCount = 0;
     setStatus('Waiting for ' + labelFor(partnerRole()));
     if (role === 'fahad') startDialLoop();
   });
@@ -313,13 +339,21 @@ function initRole(selectedRole) {
     }
   });
   peer.on('error', err => {
-    if (err && err.type === 'unavailable-id') {
+    const type = err && typeof err.type === 'string' ? err.type : 'unknown';
+    console.error('Only Us signalling error:', type, err);
+    if (type === 'unavailable-id') {
       setStatus('This profile is already open on another device');
-      showToast('This name is already active. Use Fahad on the phone and Wife on the laptop.');
-    } else if (err && err.type === 'peer-unavailable') {
+      showToast('Only one Wife profile and one Fahad profile can be active at a time.');
+    } else if (type === 'peer-unavailable') {
       setStatus('Waiting for ' + labelFor(partnerRole()));
+    } else if (['network', 'server-error', 'socket-error', 'socket-closed', 'disconnected'].includes(type)) {
+      schedulePeerRestart(type);
+    } else if (type === 'webrtc') {
+      setStatus('Device-to-device connection failed (webrtc)');
+      showToast('The network blocked the direct connection. A TURN relay may be needed.');
     } else {
-      setStatus('Waiting for ' + labelFor(partnerRole()));
+      setStatus('Connection error (' + type + ')');
+      showToast('Only Us connection error: ' + type);
     }
   });
 }
