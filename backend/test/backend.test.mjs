@@ -6,6 +6,7 @@ import { once } from 'node:events';
 import { WebSocket } from 'ws';
 
 const TOKEN = 'test-only-pairing-token-0123456789abcdef0123456789';
+const TURN_SECRET = 'test-turn-shared-secret-0123456789abcdef';
 const TIMEOUT_MS = 5000;
 
 async function freePort() {
@@ -63,7 +64,7 @@ async function connectDevice(url, device, token = TOKEN) {
 test('backend health, authentication, and paired WebRTC signaling work', async t => {
   const port = await freePort();
   const url = 'http://127.0.0.1:' + port;
-  const childEnv = { ...process.env, PORT: String(port), ONLYUS_PAIR_TOKEN: TOKEN };
+  const childEnv = { ...process.env, PORT: String(port), ONLYUS_PAIR_TOKEN: TOKEN,\n    ONLYUS_TURN_URLS: 'turn:turn.example.invalid:3478?transport=udp',\n    ONLYUS_TURN_SHARED_SECRET: TURN_SECRET };
   for (const key of ['FIREBASE_SERVICE_ACCOUNT_JSON', 'GOOGLE_APPLICATION_CREDENTIALS', 'GOOGLE_CLOUD_PROJECT', 'K_SERVICE']) {
     delete childEnv[key];
   }
@@ -87,6 +88,23 @@ test('backend health, authentication, and paired WebRTC signaling work', async t
     headers: { Authorization: 'Bearer wrong-token' }
   });
   assert.equal(denied.status, 401);
+
+  const iceResponse = await fetch(url + '/v1/ice', {
+    headers: { Authorization: 'Bearer ' + TOKEN }
+  });
+  assert.equal(iceResponse.status, 200);
+  const ice = await iceResponse.json();
+  assert.equal(ice.iceServers.length, 2);
+  assert.equal(ice.iceServers[1].urls, 'turn:turn.example.invalid:3478?transport=udp');
+  assert.match(ice.iceServers[1].username, /^\\d+:onlyus$/);
+  assert.ok(ice.iceServers[1].credential.length > 10);
+
+  const noPush = await fetch(url + '/v1/call', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + TOKEN, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from: 'desktop', event: 'ringing', callId: 'call_no_phone_123' })
+  });
+  assert.equal(noPush.status, 503, 'must not claim a sleeping phone was notified without FCM');
 
   const phone = await connectDevice(url, 'phone');
   const desktop = await connectDevice(url, 'desktop');
