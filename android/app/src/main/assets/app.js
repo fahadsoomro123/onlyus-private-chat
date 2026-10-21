@@ -542,14 +542,8 @@ function showActiveCall(title, description) {
   $('activeActions').hidden = false;
 }
 function wireCall(call) {
-  call.on('connected', () => {
-    if (isMicMonitorSession && role === 'wife') {
-      try { window.onlyUsDesktop?.micMonitorActivity?.(true); } catch {}
-      updateDesktopMicUi();
-      showActiveCall('Laptop microphone active', 'Your paired phone is listening. Turn off access or end the call to stop.');
-    }
-  });
-  call.on('stream', stream => {
+  const attachRemoteStream = stream => {
+    if (!stream || call.closed) return;
     if (outgoingCallId && call.metadata && call.metadata.callId === outgoingCallId) {
       outgoingCallConnected = true;
       activeCallId = outgoingCallId;
@@ -558,8 +552,13 @@ function wireCall(call) {
       callRetryTimer = null;
       callTimeoutTimer = null;
     }
-    $('remoteAudio').srcObject = stream;
-    const p = $('remoteAudio').play();
+    const audio = $('remoteAudio');
+    audio.autoplay = true;
+    audio.playsInline = true;
+    audio.muted = false;
+    audio.volume = 1;
+    audio.srcObject = stream;
+    const p = audio.play();
     if (p && typeof p.catch === 'function') p.catch(() => showToast('Tap the call panel once to enable speaker audio.'));
     if (outgoingCallMode === 'monitor' && role === 'fahad') {
       showActiveCall('Listening to laptop', 'Laptop microphone is streaming to your phone. Tap End call to stop.');
@@ -568,7 +567,24 @@ function wireCall(call) {
     } else {
       showActiveCall('In call with ' + labelFor(partnerRole()), 'Voice call is connected. Microphone is on.');
     }
+  };
+  call.on('connected', () => {
+    if (isMicMonitorSession && role === 'wife') {
+      try { window.onlyUsDesktop?.micMonitorActivity?.(true); } catch {}
+      updateDesktopMicUi();
+      showActiveCall('Laptop microphone active', 'Your paired phone is listening. Turn off access or end the call to stop.');
+    }
   });
+  call.on('stream', attachRemoteStream);
+
+  // Incoming offers can emit "stream" as soon as setRemoteDescription() runs,
+  // before the user answers and before wireCall() is installed. Re-attach the
+  // already-discovered remote stream after answering so the event is not lost.
+  const existingRemoteStream = call.remoteStream;
+  if (existingRemoteStream && typeof existingRemoteStream.getAudioTracks === 'function' &&
+      existingRemoteStream.getAudioTracks().some(track => track.readyState !== 'ended')) {
+    attachRemoteStream(existingRemoteStream);
+  }
   call.on('close', () => {
     const isCurrent = activeCall === call || incomingCall === call;
     if (!isCurrent) return;

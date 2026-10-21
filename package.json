@@ -1,6 +1,6 @@
 {
   "name": "only-us-private-chat",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "private": true,
   "description": "Private voice and chat for two devices",
   "main": "desktop/main.cjs",
@@ -8,7 +8,8 @@
     "start": "node server.js",
     "desktop:dev": "electron .",
     "desktop:build": "electron-builder --win nsis",
-    "check:syntax": "node --check public/app.js && node --check public/native-peer.js && node --check android/app/src/main/assets/app.js && node --check android/app/src/main/assets/native-peer.js && node --check desktop/main.cjs && node --check server.js"
+    "check:syntax": "node --check public/app.js && node --check public/native-peer.js && node --check android/app/src/main/assets/app.js && node --check android/app/src/main/assets/native-peer.js && node --check desktop/main.cjs && node --check server.js",
+    "test:media": "node --test tests/app-media.test.cjs"
   },
   "dependencies": {
     "peerjs": "1.5.5"
