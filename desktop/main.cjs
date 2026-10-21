@@ -380,7 +380,12 @@ if (!gotLock) {
 
     ipcMain.on('onlyus:incoming-call', event => {
       if (!event.sender.getURL().startsWith(appUrl)) return;
-      if (win && !win.isDestroyed()) win.flashFrame(true);
+      // The app intentionally hides to the tray on close. An incoming call must
+      // bring the call controls back so the user can answer or decline immediately.
+      if (win && !win.isDestroyed()) {
+        win.flashFrame(false);
+        showWindow();
+      }
       if (Notification.isSupported()) {
         if (incomingNotification) incomingNotification.close();
         incomingNotification = new Notification({
