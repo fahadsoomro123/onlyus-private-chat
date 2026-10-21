@@ -16,6 +16,17 @@
       <p class="eyebrow">A PRIVATE SPACE FOR TWO</p>
       <h1>Only Us</h1>
       <p class="intro">Voice calls and messages, in one simple place.</p>
+      <section id="pairSetup" class="pair-setup" hidden aria-labelledby="pairSetupTitle">
+        <h2 id="pairSetupTitle">Connect your private pair</h2>
+        <p>This hosted copy does not contain your private pairing key. Enter the key from your Only Us private setup file once. It stays in this browser only.</p>
+        <form id="pairSetupForm">
+          <label for="pairCode">Private pairing key</label>
+          <input id="pairCode" name="pairCode" type="password" inputmode="text" minlength="48" maxlength="48" pattern="[a-fA-F0-9]{48}" autocomplete="off" spellcheck="false" required aria-describedby="pairSetupHint">
+          <button class="pair-setup-button" type="submit">Save key on this device</button>
+          <p id="pairSetupHint" class="pair-setup-hint">48-character private key. Do not post it publicly or send it to anyone else.</p>
+          <p id="pairSetupError" class="pair-setup-error" role="status" aria-live="polite"></p>
+        </form>
+      </section>
       <div class="profile-card">
         <h2>Who is using this device?</h2>
         <p class="subtext">Choose your name once. This device will remember it.</p>
@@ -39,6 +50,21 @@
         <div id="partnerAvatar" class="avatar avatar-pink">W</div>
         <div class="partner-copy"><strong id="partnerName">Wife</strong><span id="connectionStatus" class="connection-status"><i></i><span>Connecting…</span></span></div>
         <button id="callButton" class="call-button" type="button" aria-label="Start voice call"><span aria-hidden="true">☎</span><span>Call</span></button>
+        <button id="listenButton" class="listen-button" type="button" aria-label="Listen to laptop microphone" hidden><span aria-hidden="true">◖</span><span>Listen</span></button>
+      </div>
+      <section id="desktopMicPermission" class="mic-permission" hidden aria-labelledby="desktopMicTitle">
+        <div class="mic-permission-copy">
+          <strong id="desktopMicTitle">Laptop microphone access</strong>
+          <p id="desktopMicDescription">OFF. Your paired phone cannot listen to this laptop.</p>
+        </div>
+        <label class="mic-toggle" for="desktopMicToggle">
+          <input id="desktopMicToggle" type="checkbox">
+          <span>Allow phone to listen</span>
+        </label>
+      </section>
+      <div id="micActiveStatus" class="mic-active-status" role="status" aria-live="assertive" hidden>
+        <span class="mic-active-dot" aria-hidden="true"></span>
+        <strong id="micActiveText">MIC ACTIVE · Your paired phone is listening.</strong>
       </div>
       <div id="callPanel" class="call-panel" role="alert" aria-live="assertive" hidden>
         <div class="call-info"><div class="call-pulse">☎</div><div><strong id="callTitle">Incoming call</strong><p id="callDescription">Your partner is calling.</p></div></div>

@@ -91,6 +91,7 @@
         if (state === 'connected') {
           this.connected = true;
           this.open = true;
+          this.emit('connected', this);
         } else if (state === 'failed') {
           this.emit('error', normalError('webrtc', 'Peer-to-peer connection failed.'));
         } else if (state === 'closed') {
@@ -171,8 +172,14 @@
     }
 
     async start(stream) {
-      this.localStream = stream;
-      for (const track of stream.getTracks()) this.pc.addTrack(track, stream);
+      this.localStream = stream || null;
+      if (stream && typeof stream.getTracks === 'function' && stream.getTracks().length) {
+        for (const track of stream.getTracks()) this.pc.addTrack(track, stream);
+      } else if (this.metadata.monitor === true) {
+        this.pc.addTransceiver('audio', { direction: 'recvonly' });
+      } else {
+        throw normalError('media', 'A microphone stream is required for a voice call.');
+      }
       const offer = await this.pc.createOffer();
       if (this.closed) return;
       await this.pc.setLocalDescription(offer);

@@ -271,7 +271,8 @@ wss.on('connection', ws => {
             kind,
             callId: message.callId,
             from: ws.device === 'phone' ? 'fahad' : 'wife',
-            label: ws.device === 'phone' ? 'Fahad' : 'Wife'
+            label: ws.device === 'phone' ? 'Fahad' : 'Wife',
+            monitor: kind === 'media' && ws.device === 'phone' && message.metadata.monitor === true
           },
           updatedAt: Date.now()
         };

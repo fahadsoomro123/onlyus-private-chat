@@ -296,6 +296,7 @@ export class OnlyUsRoom {
           callId: message.callId,
           from: device === "phone" ? "fahad" : "wife",
           label: device === "phone" ? "Fahad" : "Wife",
+          monitor: kind === "media" && device === "phone" && message.metadata.monitor === true,
         },
       };
     } else if (

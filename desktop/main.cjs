@@ -1,6 +1,7 @@
 'use strict';
 
 const { app, BrowserWindow, Tray, Menu, nativeImage, session, shell, ipcMain, Notification, powerSaveBlocker, powerMonitor } = require('electron');
+const { spawn, spawnSync } = require('node:child_process');
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -14,9 +15,12 @@ let win = null;
 let tray = null;
 let server = null;
 let appUrl = 'http://127.0.0.1:4178';
-let preferences = { startWithWindows: true };
+let preferences = { startWithWindows: true, allowPhoneMicMonitor: false, lidActionBackup: null };
 let incomingNotification = null;
 let powerBlockerId = null;
+let monitorPowerRequest = null;
+let micMonitorActive = false;
+let refreshTrayMenu = () => {};
 let allowQuit = false;
 
 const MIME = {
@@ -53,9 +57,20 @@ function loadPreferences() {
   try {
     const file = path.join(app.getPath('userData'), 'settings.json');
     const saved = JSON.parse(fs.readFileSync(file, 'utf8'));
-    return { startWithWindows: saved.startWithWindows !== false };
+    const loaded = {
+      startWithWindows: saved.startWithWindows !== false,
+      allowPhoneMicMonitor: saved.allowPhoneMicMonitor === true,
+      lidActionBackup: saved.lidActionBackup && Number.isInteger(saved.lidActionBackup.ac)
+        && Number.isInteger(saved.lidActionBackup.dc) ? saved.lidActionBackup : null
+    };
+    if (loaded.lidActionBackup && !loaded.allowPhoneMicMonitor
+        && applyLidActionValues(loaded.lidActionBackup)) {
+      loaded.lidActionBackup = null;
+      fs.writeFileSync(file, JSON.stringify(loaded, null, 2));
+    }
+    return loaded;
   } catch {
-    return { startWithWindows: true };
+    return { startWithWindows: true, allowPhoneMicMonitor: false, lidActionBackup: null };
   }
 }
 
@@ -76,6 +91,113 @@ function setStartup(enabled) {
   }
 }
 
+function setMicMonitorPermission(enabled) {
+  preferences.allowPhoneMicMonitor = Boolean(enabled);
+  setStartup(preferences.startWithWindows);
+  setSystemAwakeRequest(preferences.allowPhoneMicMonitor || micMonitorActive);
+  refreshTrayMenu();
+  if (win && !win.isDestroyed()) {
+    win.webContents.send('onlyus:mic-monitor-permission', preferences.allowPhoneMicMonitor);
+  }
+  return preferences.allowPhoneMicMonitor;
+}
+
+function applyLidActionValues(values) {
+  if (!values || !Number.isInteger(values.ac) || !Number.isInteger(values.dc)) return false;
+  const ac = spawnSync('powercfg.exe', [
+    '/setacvalueindex', 'SCHEME_CURRENT', 'SUB_BUTTONS', 'LIDACTION', String(values.ac)
+  ], { encoding: 'utf8', windowsHide: true });
+  const dc = spawnSync('powercfg.exe', [
+    '/setdcvalueindex', 'SCHEME_CURRENT', 'SUB_BUTTONS', 'LIDACTION', String(values.dc)
+  ], { encoding: 'utf8', windowsHide: true });
+  if (ac.status !== 0 || dc.status !== 0) return false;
+  const activate = spawnSync('powercfg.exe', ['/setactive', 'SCHEME_CURRENT'], {
+    encoding: 'utf8', windowsHide: true
+  });
+  return activate.status === 0;
+}
+
+function setTemporaryLidAction(enabled) {
+  if (enabled) {
+    if (preferences.lidActionBackup) {
+      return applyLidActionValues({ ac: 0, dc: 0 });
+    }
+    const query = spawnSync('powercfg.exe', [
+      '/query', 'SCHEME_CURRENT', 'SUB_BUTTONS', 'LIDACTION'
+    ], { encoding: 'utf8', windowsHide: true });
+    if (query.status !== 0) return false;
+    const acMatch = /Current AC Power Setting Index:\s*0x([0-9a-f]+)/i.exec(query.stdout || '');
+    const dcMatch = /Current DC Power Setting Index:\s*0x([0-9a-f]+)/i.exec(query.stdout || '');
+    if (!acMatch || !dcMatch) return false;
+    const original = { ac: parseInt(acMatch[1], 16), dc: parseInt(dcMatch[1], 16) };
+    preferences.lidActionBackup = original;
+    setStartup(preferences.startWithWindows);
+    if (applyLidActionValues({ ac: 0, dc: 0 })) return true;
+    const restored = applyLidActionValues(original);
+    if (restored) {
+      preferences.lidActionBackup = null;
+      setStartup(preferences.startWithWindows);
+    }
+    return false;
+  }
+  const original = preferences.lidActionBackup;
+  if (!original) return true;
+  if (!applyLidActionValues(original)) return false;
+  preferences.lidActionBackup = null;
+  setStartup(preferences.startWithWindows);
+  return true;
+}
+
+function setSystemAwakeRequest(enabled) {
+  if (enabled) {
+    if (!setTemporaryLidAction(true)) {
+      console.warn('Only Us could not temporarily change the lid-close power action. Closed-lid audio depends on Windows power settings.');
+    }
+    if (monitorPowerRequest && !monitorPowerRequest.killed) return;
+    const script = [
+      "$source = 'using System; using System.Runtime.InteropServices; public static class OnlyUsExecutionState { [DllImport(\"kernel32.dll\")] public static extern uint SetThreadExecutionState(uint flags); }'",
+      'Add-Type -TypeDefinition $source -ErrorAction Stop',
+      "$flags = [uint32]::Parse('2147483649')",
+      'while ($true) { [OnlyUsExecutionState]::SetThreadExecutionState($flags) | Out-Null; Start-Sleep -Seconds 30 }'
+    ].join(String.fromCharCode(10));
+    const child = spawn('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script], {
+      windowsHide: true,
+      stdio: 'ignore'
+    });
+    monitorPowerRequest = child;
+    child.on('exit', () => { if (monitorPowerRequest === child) monitorPowerRequest = null; });
+    child.on('error', () => { if (monitorPowerRequest === child) monitorPowerRequest = null; });
+    return;
+  }
+  const child = monitorPowerRequest;
+  monitorPowerRequest = null;
+  if (child) { try { child.kill(); } catch {} }
+  if (!setTemporaryLidAction(false)) {
+    console.warn('Only Us could not restore the prior lid-close power action.');
+  }
+}
+
+function setMicMonitorActivity(active) {
+  const next = Boolean(active) && preferences.allowPhoneMicMonitor === true;
+  const changed = next !== micMonitorActive;
+  micMonitorActive = next;
+  setSystemAwakeRequest(preferences.allowPhoneMicMonitor || next);
+  if (tray) tray.setToolTip(next
+    ? 'Only Us · MIC ACTIVE · your paired phone is listening'
+    : preferences.allowPhoneMicMonitor
+      ? 'Only Us · mic ready · microphone is off until requested'
+      : 'Only Us · Private calls and messages');
+  refreshTrayMenu();
+  if (changed && next && Notification.isSupported()) {
+    const notice = new Notification({
+      title: 'Only Us · Microphone active',
+      body: 'Your paired phone is listening to this laptop. Stop the session in Only Us or turn microphone access off.',
+      silent: true
+    });
+    notice.show();
+  }
+}
+
 function showWindow() {
   if (!win || win.isDestroyed()) return;
   if (win.isMinimized()) win.restore();
@@ -88,8 +210,12 @@ function createTray() {
   const trayImage = nativeImage.createFromDataURL('data:image/svg+xml;base64,' + Buffer.from(svg).toString('base64'));
   tray = new Tray(trayImage);
   tray.setToolTip('Only Us · Private calls and messages');
-  const refreshMenu = () => {
+  refreshTrayMenu = () => {
     const startup = preferences.startWithWindows;
+    const micPermission = preferences.allowPhoneMicMonitor === true;
+    tray.setToolTip(micMonitorActive
+      ? 'Only Us · MIC ACTIVE · your paired phone is listening'
+      : 'Only Us · Private calls and messages');
     tray.setContextMenu(Menu.buildFromTemplate([
       { label: 'Open Only Us', click: showWindow },
       { type: 'separator' },
@@ -99,13 +225,23 @@ function createTray() {
         checked: startup,
         click: item => setStartup(item.checked)
       },
+      {
+        label: micMonitorActive ? 'MIC ACTIVE · phone listening' : 'Microphone sharing inactive',
+        enabled: false
+      },
+      {
+        label: 'Allow phone to listen to laptop mic',
+        type: 'checkbox',
+        checked: micPermission,
+        click: item => setMicMonitorPermission(item.checked)
+      },
       { type: 'separator' },
       { label: 'Exit Only Us', click: () => { allowQuit = true; app.quit(); } }
     ]));
   };
-  refreshMenu();
+  refreshTrayMenu();
   tray.on('click', showWindow);
-  tray.on('right-click', refreshMenu);
+  tray.on('right-click', refreshTrayMenu);
 }
 
 function createStaticServer() {
@@ -204,6 +340,7 @@ if (!gotLock) {
   app.whenReady().then(() => {
     preferences = loadPreferences();
     setStartup(preferences.startWithWindows);
+    setSystemAwakeRequest(preferences.allowPhoneMicMonitor);
 
     // Keep the call-signaling app alive while the display is off.
     // The monitor may turn off; Windows itself must not enter sleep.
@@ -222,6 +359,17 @@ if (!gotLock) {
     const originAllowed = origin => {
       try { return new URL(origin).origin === appUrl; } catch { return false; }
     };
+    ipcMain.handle('onlyus:get-mic-monitor', event =>
+      originAllowed(event.sender.getURL()) && preferences.allowPhoneMicMonitor === true);
+    ipcMain.handle('onlyus:set-mic-monitor', (event, enabled) => {
+      if (!originAllowed(event.sender.getURL())) return false;
+      return setMicMonitorPermission(enabled);
+    });
+    ipcMain.on('onlyus:mic-monitor-activity', (event, enabled) => {
+      if (!originAllowed(event.sender.getURL())) return;
+      if (Boolean(enabled) && preferences.allowPhoneMicMonitor !== true) return;
+      setMicMonitorActivity(enabled);
+    });
     session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
       const allowedOrigin = appUrl && originAllowed(details && details.requestingUrl || webContents.getURL());
       const audioOnly = details && Array.isArray(details.mediaTypes)
@@ -273,6 +421,8 @@ if (!gotLock) {
   app.on('activate', showWindow);
   app.on('before-quit', () => {
     allowQuit = true;
+    micMonitorActive = false;
+    setSystemAwakeRequest(false);
     if (powerBlockerId !== null) {
       try { powerSaveBlocker.stop(powerBlockerId); } catch {}
       powerBlockerId = null;

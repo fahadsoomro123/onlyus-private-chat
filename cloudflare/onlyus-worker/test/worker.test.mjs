@@ -86,6 +86,71 @@ test("invalid JSON body is rejected", async () => {
   assert.deepEqual(await response.json(), { error: "invalid_json" });
 });
 
+function makeTestSocket(device) {
+  let attachment = { device, connectedAt: Date.now() };
+  const sent = [];
+  return {
+    device,
+    sent,
+    readyState: 1,
+    serializeAttachment(value) { attachment = value; },
+    deserializeAttachment() { return attachment; },
+    send(raw) { sent.push(JSON.parse(String(raw))); },
+    close() { this.readyState = 3; },
+  };
+}
+
+function makeSignalRoom(sockets) {
+  const storage = new Map();
+  const state = {
+    storage: {
+      async get(key) { return storage.get(key); },
+      async put(key, value) { storage.set(key, value); },
+      async delete(key) { return storage.delete(key); },
+    },
+    getWebSockets() { return sockets; },
+    acceptWebSocket() {},
+  };
+  return new OnlyUsRoom(state, { ONLYUS_PAIR_TOKEN: pairToken });
+}
+
+test("phone can request one-way laptop microphone audio without sending phone audio", async () => {
+  const phone = makeTestSocket("phone");
+  const desktop = makeTestSocket("desktop");
+  const room = makeSignalRoom([phone, desktop]);
+  await room.handleWebSocketMessage(phone, JSON.stringify({
+    type: "signal",
+    rtcId: "rtc-monitor-0001",
+    callId: "call-monitor-0001",
+    signalType: "offer",
+    metadata: { kind: "media", monitor: true },
+    signal: { type: "offer", sdp: "v=0\\r\\n" },
+  }));
+  const forwarded = desktop.sent.find((message) =>
+    message.type === "signal" && message.rtcId === "rtc-monitor-0001");
+  assert.ok(forwarded, "monitor offer should reach the paired laptop");
+  assert.equal(forwarded.metadata.monitor, true);
+  assert.equal(forwarded.signal.type, "offer");
+});
+
+test("a desktop-originated offer cannot request phone mic monitoring mode", async () => {
+  const phone = makeTestSocket("phone");
+  const desktop = makeTestSocket("desktop");
+  const room = makeSignalRoom([phone, desktop]);
+  await room.handleWebSocketMessage(desktop, JSON.stringify({
+    type: "signal",
+    rtcId: "rtc-monitor-0002",
+    callId: "call-monitor-0002",
+    signalType: "offer",
+    metadata: { kind: "media", monitor: true },
+    signal: { type: "offer", sdp: "v=0\\r\\n" },
+  }));
+  const forwarded = phone.sent.find((message) =>
+    message.type === "signal" && message.rtcId === "rtc-monitor-0002");
+  assert.ok(forwarded, "media offer should reach the paired phone");
+  assert.equal(forwarded.metadata.monitor, false);
+});
+
 test("phone FCM registration is explicitly blocked until push credentials are configured", async () => {
   const response = await makeRoom().fetch(request("/v1/register-phone", {
     method: "POST",

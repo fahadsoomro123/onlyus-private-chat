@@ -2,6 +2,7 @@
 
 const $ = (id) => document.getElementById(id);
 const PROFILE_KEY = 'onlyus.profile.v1';
+const ROOM_KEY = 'onlyus.room-key.v1';
 const MESSAGE_KEY = 'onlyus.messages.v1';
 const MAX_MESSAGES = 500;
 const ROLE_LABELS = { fahad: 'Fahad', wife: 'Wife' };
@@ -20,6 +21,8 @@ let localAudioStream = null;
 let outgoingCallId = null;
 let activeCallId = null;
 let outgoingCallConnected = false;
+let outgoingCallMode = 'call';
+let isMicMonitorSession = false;
 let callRetryTimer = null;
 let callTimeoutTimer = null;
 let roleInitGeneration = 0;
@@ -348,6 +351,8 @@ async function initRole(selectedRole) {
   $('partnerAvatar').textContent = partnerRole() === 'wife' ? 'W' : 'F';
   $('partnerAvatar').className = 'avatar ' + (partnerRole() === 'wife' ? 'avatar-pink' : 'avatar-blue');
   $('callButton').setAttribute('aria-label', 'Call ' + labelFor(partnerRole()));
+  $('listenButton').hidden = role !== 'fahad';
+  refreshDesktopMicControl();
   renderMessages();
   setStatus('Connecting to private network…');
   const iceServers = await getIceServers();
@@ -379,36 +384,7 @@ async function initRole(selectedRole) {
     if (role === 'wife') attachDataConnection(conn);
     else { try { conn.close(); } catch {} }
   });
-  peer.on('call', call => {
-    if (activeCall || incomingCall) { try { call.close(); } catch {} return; }
-    incomingCall = call;
-    try { window.onlyUsDesktop?.incomingCall?.(); } catch {}
-    try { window.AndroidOnlyUs?.incomingCall?.(); } catch {}
-    $('callPanel').hidden = false;
-    $('callTitle').textContent = 'Incoming voice call';
-    $('callDescription').textContent = labelFor(partnerRole()) + ' is calling you.';
-    $('incomingActions').hidden = false;
-    $('activeActions').hidden = true;
-    call.on('close', () => {
-      if (incomingCall === call && !activeCall) {
-        stopRingtone();
-        finishCallUi();
-      }
-    });
-    call.on('error', () => {
-      if (incomingCall === call && !activeCall) {
-        stopRingtone();
-        finishCallUi();
-        showToast('The incoming call ended or could not connect.');
-      }
-    });
-    startRingtone();
-    const incomingId = call.metadata && call.metadata.callId;
-    if (incomingId) activeCallId = incomingId;
-    let shouldAnswer = false;
-    try { shouldAnswer = window.AndroidOnlyUs?.shouldAutoAnswer?.(incomingId) === true; } catch {}
-    if (shouldAnswer) acceptCall();
-  });
+  peer.on('call', call => { handleIncomingCall(call); });
   peer.on('disconnected', () => {
     setStatus('Reconnecting to private network…');
     // Re-open the private signalling connection after a transient server drop.
@@ -438,6 +414,79 @@ async function initRole(selectedRole) {
     }
   });
 }
+async function refreshDesktopMicControl() {
+  const bridge = window.onlyUsDesktop;
+  const panel = $('desktopMicPermission');
+  if (!bridge || role !== 'wife') {
+    panel.hidden = true;
+    $('micActiveStatus').hidden = true;
+    return;
+  }
+  panel.hidden = false;
+  try { $('desktopMicToggle').checked = await bridge.micMonitorEnabled(); }
+  catch { $('desktopMicToggle').checked = false; }
+  updateDesktopMicUi();
+}
+function updateDesktopMicUi() {
+  const bridge = window.onlyUsDesktop;
+  if (!bridge || role !== 'wife') return;
+  const enabled = $('desktopMicToggle').checked;
+  $('desktopMicDescription').textContent = isMicMonitorSession
+    ? 'MIC ACTIVE. Your paired phone is listening. Turn this option off or end the call to stop.'
+    : enabled
+      ? 'ON. Mic stays off until your phone taps Listen. Windows stays awake with the screen off, so battery use increases.'
+      : 'OFF. Your paired phone cannot listen to this laptop.';
+  $('micActiveText').textContent = 'MIC ACTIVE · Your paired phone is listening. Keep laptop ventilation clear.';
+  $('micActiveStatus').hidden = !isMicMonitorSession;
+}
+async function handleIncomingCall(call) {
+  if (activeCall || incomingCall) { try { call.close(); } catch {} return; }
+  const monitorRequest = Boolean(call.metadata && call.metadata.monitor === true);
+  const incomingId = call.metadata && call.metadata.callId;
+  if (monitorRequest) {
+    const bridge = window.onlyUsDesktop;
+    let allowed = false;
+    if (role === 'wife' && bridge && typeof bridge.micMonitorEnabled === 'function') {
+      try { allowed = await bridge.micMonitorEnabled() === true; } catch {}
+    }
+    if (!allowed) {
+      if (incomingId) sendBackendCall('rejected', incomingId);
+      try { call.close(); } catch {}
+      showToast('Laptop microphone access is OFF. Enable “Allow phone to listen” on this laptop first.');
+      return;
+    }
+    incomingCall = call;
+    isMicMonitorSession = true;
+    activeCallId = incomingId || null;
+    await acceptCall();
+    return;
+  }
+  incomingCall = call;
+  try { window.onlyUsDesktop?.incomingCall?.(); } catch {}
+  $('callPanel').hidden = false;
+  $('callTitle').textContent = 'Incoming voice call';
+  $('callDescription').textContent = labelFor(partnerRole()) + ' is calling you.';
+  $('incomingActions').hidden = false;
+  $('activeActions').hidden = true;
+  call.on('close', () => {
+    if (incomingCall === call && !activeCall) {
+      stopRingtone();
+      finishCallUi();
+    }
+  });
+  call.on('error', () => {
+    if (incomingCall === call && !activeCall) {
+      stopRingtone();
+      finishCallUi();
+      showToast('The incoming call ended or could not connect.');
+    }
+  });
+  startRingtone();
+  if (incomingId) activeCallId = incomingId;
+  let shouldAnswer = false;
+  try { shouldAnswer = window.AndroidOnlyUs?.shouldAutoAnswer?.(incomingId) === true; } catch {}
+  if (shouldAnswer) acceptCall();
+}
 async function getMicrophone() {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
     const error = new Error('Microphone access is unavailable in this app.');
@@ -465,6 +514,26 @@ async function getMicrophone() {
   }
   throw lastError || new Error('Could not access the microphone.');
 }
+async function startMonitorListen() {
+  if (role !== 'fahad') return;
+  if (!peer || !peer.open) { showToast('Connecting to Only Us. Try again in a moment.'); return; }
+  if (activeCall || incomingCall || outgoingCallId) return;
+  stopRingtone();
+  outgoingCallMode = 'monitor';
+  localAudioStream = null;
+  outgoingCallId = makeId();
+  activeCallId = outgoingCallId;
+  outgoingCallConnected = false;
+  const callId = outgoingCallId;
+  showActiveCall('Listening to laptop…', 'Waiting for laptop microphone access to be allowed.');
+  attemptOutgoingCall(callId);
+  callTimeoutTimer = setTimeout(() => {
+    if (outgoingCallId !== callId) return;
+    sendBackendCall('missed', callId);
+    endCall(false, false);
+    showToast('Laptop microphone did not connect. Check the laptop mic option and Internet.');
+  }, 65000);
+}
 function showActiveCall(title, description) {
   $('callPanel').hidden = false;
   $('callTitle').textContent = title;
@@ -473,6 +542,13 @@ function showActiveCall(title, description) {
   $('activeActions').hidden = false;
 }
 function wireCall(call) {
+  call.on('connected', () => {
+    if (isMicMonitorSession && role === 'wife') {
+      try { window.onlyUsDesktop?.micMonitorActivity?.(true); } catch {}
+      updateDesktopMicUi();
+      showActiveCall('Laptop microphone active', 'Your paired phone is listening. Turn off access or end the call to stop.');
+    }
+  });
   call.on('stream', stream => {
     if (outgoingCallId && call.metadata && call.metadata.callId === outgoingCallId) {
       outgoingCallConnected = true;
@@ -485,7 +561,13 @@ function wireCall(call) {
     $('remoteAudio').srcObject = stream;
     const p = $('remoteAudio').play();
     if (p && typeof p.catch === 'function') p.catch(() => showToast('Tap the call panel once to enable speaker audio.'));
-    showActiveCall('In call with ' + labelFor(partnerRole()), 'Voice call is connected. Microphone is on.');
+    if (outgoingCallMode === 'monitor' && role === 'fahad') {
+      showActiveCall('Listening to laptop', 'Laptop microphone is streaming to your phone. Tap End call to stop.');
+    } else if (isMicMonitorSession && role === 'wife') {
+      showActiveCall('Laptop microphone active', 'Your paired phone is listening. Turn off access or end the call to stop.');
+    } else {
+      showActiveCall('In call with ' + labelFor(partnerRole()), 'Voice call is connected. Microphone is on.');
+    }
   });
   call.on('close', () => {
     const isCurrent = activeCall === call || incomingCall === call;
@@ -526,8 +608,9 @@ function attemptOutgoingCall(callId) {
     return;
   }
   if (activeCall) return;
-  const call = peer.call(otherPeerId(), localAudioStream, {
-    metadata: { from: role, label: labelFor(role), callId }
+  const monitor = outgoingCallMode === 'monitor';
+  const call = peer.call(otherPeerId(), monitor ? null : localAudioStream, {
+    metadata: { from: role, label: labelFor(role), callId, ...(monitor ? { monitor: true } : {}) }
   });
   if (!call) {
     scheduleOutgoingRetry(callId);
@@ -539,6 +622,7 @@ function attemptOutgoingCall(callId) {
 async function startCall() {
   if (!peer || !peer.open) { showToast('Connecting to the private network. Try again in a moment.'); return; }
   if (activeCall || incomingCall || outgoingCallId) return;
+  outgoingCallMode = 'call';
   stopRingtone();
   try {
     localAudioStream = await getMicrophone();
@@ -573,6 +657,7 @@ async function startCall() {
 async function acceptCall() {
   if (!incomingCall) return;
   const call = incomingCall;
+  const micMonitorRequest = isMicMonitorSession && call.metadata && call.metadata.monitor === true;
   stopRingtone();
   try {
     localAudioStream = await getMicrophone();
@@ -580,7 +665,10 @@ async function acceptCall() {
     if (activeCallId) sendBackendCall('accepted', activeCallId);
     activeCall = call;
     await call.answer(localAudioStream);
-    showActiveCall('Connecting call…', 'Please wait a moment.');
+    showActiveCall(
+      micMonitorRequest ? 'Starting laptop microphone…' : 'Connecting call…',
+      micMonitorRequest ? 'Only this laptop microphone will be sent to your paired phone.' : 'Please wait a moment.'
+    );
     wireCall(call);
   } catch (error) {
     console.error('Only Us microphone capture failed while answering:', error && error.name, error && error.message);
@@ -617,7 +705,12 @@ function finishCallUi(notifyBackend = true) {
   outgoingCallId = null;
   activeCallId = null;
   outgoingCallConnected = false;
+  const wasMicMonitor = isMicMonitorSession;
+  isMicMonitorSession = false;
+  outgoingCallMode = 'call';
+  if (wasMicMonitor) { try { window.onlyUsDesktop?.micMonitorActivity?.(false); } catch {} }
   stopLocalAudio();
+  updateDesktopMicUi();
   $('callPanel').hidden = true;
   $('incomingActions').hidden = false;
   $('activeActions').hidden = true;
@@ -638,8 +731,13 @@ function endCall(closeRemote = true, notifyBackend = true) {
   outgoingCallId = null;
   activeCallId = null;
   outgoingCallConnected = false;
+  const wasMicMonitor = isMicMonitorSession;
+  isMicMonitorSession = false;
+  outgoingCallMode = 'call';
+  if (wasMicMonitor) { try { window.onlyUsDesktop?.micMonitorActivity?.(false); } catch {} }
   if (closeRemote && call) { try { call.close(); } catch {} }
   stopLocalAudio();
+  updateDesktopMicUi();
   if ($('callPanel')) {
     $('callPanel').hidden = true;
     $('incomingActions').hidden = false;
@@ -654,6 +752,9 @@ function sendMessage(text) {
   if (dataConnection && dataConnection.open) sendPayload({ type: 'chat', message: msg });
 }
 
+window.onlyUsDisableMicMonitor = function () {
+  if (isMicMonitorSession) endCall(true);
+};
 window.onlyUsAnswerPendingCall = function () {
   const callId = incomingCall && incomingCall.metadata && incomingCall.metadata.callId || activeCallId;
   if (!callId) return;
@@ -664,7 +765,25 @@ window.onlyUsAnswerPendingCall = function () {
   }
 };
 
-document.querySelectorAll('[data-role]').forEach(button => button.addEventListener('click', () => initRole(button.dataset.role)));
+document.querySelectorAll('[data-role]').forEach(button => button.addEventListener('click', () => {
+  if (!settings) { showToast('Enter your private pairing key first.'); $('pairCode').focus(); return; }
+  initRole(button.dataset.role);
+}));
+$('pairSetupForm').addEventListener('submit', event => {
+  event.preventDefault();
+  const roomKey = $('pairCode').value.trim().toLowerCase();
+  if (!/^[a-f0-9]{48}$/.test(roomKey)) {
+    $('pairSetupError').textContent = 'That key is not valid. Copy all 48 characters and try again.';
+    return;
+  }
+  settings = { roomKey };
+  localStorage.setItem(ROOM_KEY, roomKey);
+  $('pairSetup').hidden = true;
+  $('pairSetupError').textContent = '';
+  $('profileStatus').textContent = 'Private pairing key saved in this browser.';
+  const savedRole = localStorage.getItem(PROFILE_KEY);
+  if (['fahad', 'wife'].includes(savedRole)) initRole(savedRole);
+});
 $('changeProfile').addEventListener('click', () => {
   stopRingtone();
   endCall();
@@ -685,6 +804,29 @@ $('messageForm').addEventListener('submit', event => {
   input.value = '';
 });
 $('callButton').addEventListener('click', startCall);
+$('listenButton').addEventListener('click', startMonitorListen);
+$('desktopMicToggle').addEventListener('change', async () => {
+  const bridge = window.onlyUsDesktop;
+  if (!bridge) return;
+  const requested = $('desktopMicToggle').checked;
+  let saved = false;
+  try { saved = await bridge.setMicMonitorEnabled(requested) === requested; } catch {}
+  if (!saved) {
+    $('desktopMicToggle').checked = !requested;
+    showToast('Could not save laptop microphone permission.');
+  } else {
+    if (!requested && isMicMonitorSession) endCall(true);
+    showToast(requested ? 'Laptop mic access enabled. It only streams when you tap Listen on your phone.' : 'Laptop mic access disabled.');
+  }
+  updateDesktopMicUi();
+});
+if (window.onlyUsDesktop?.onMicMonitorPermissionChange) {
+  window.onlyUsDesktop.onMicMonitorPermissionChange(enabled => {
+    $('desktopMicToggle').checked = Boolean(enabled);
+    if (!enabled && isMicMonitorSession) endCall(true);
+    updateDesktopMicUi();
+  });
+}
 $('acceptButton').addEventListener('click', acceptCall);
 $('declineButton').addEventListener('click', () => {
   const callId = incomingCall && incomingCall.metadata && incomingCall.metadata.callId || activeCallId;
@@ -700,16 +842,32 @@ $('endCallButton').addEventListener('click', () => endCall(true));
 document.addEventListener('pointerdown', unlockRingtoneAudio, { once: true, passive: true });
 
 (async function bootstrap() {
+  let configured = false;
   try {
     const response = await fetch('pair-config.json', { cache: 'no-store' });
-    if (!response.ok) throw new Error('pair config unavailable');
-    settings = await response.json();
-    if (!settings.backendUrl) settings.backendUrl = DEFAULT_BACKEND_URL;
-    if (typeof settings.roomKey !== 'string' || !/^[a-f0-9]{48}$/.test(settings.roomKey)) throw new Error('invalid pairing config');
-    const savedRole = localStorage.getItem(PROFILE_KEY);
-    if (['fahad', 'wife'].includes(savedRole)) initRole(savedRole);
-  } catch {
-    $('profileStatus').textContent = 'Setup could not load. Close the app and check its files.';
-    showToast('Only Us setup could not load.');
+    if (response.ok) {
+      const candidate = await response.json();
+      if (candidate && typeof candidate.roomKey === 'string' && /^[a-f0-9]{48}$/.test(candidate.roomKey)) {
+        settings = candidate;
+        configured = true;
+      }
+    }
+  } catch {}
+
+  if (!configured) {
+    const savedKey = localStorage.getItem(ROOM_KEY) || '';
+    if (/^[a-f0-9]{48}$/.test(savedKey)) {
+      settings = { roomKey: savedKey };
+      configured = true;
+    }
   }
+
+  if (!configured) {
+    $('pairSetup').hidden = false;
+    $('profileStatus').textContent = 'Enter your private pairing key to connect this browser to your phone.';
+    return;
+  }
+
+  const savedRole = localStorage.getItem(PROFILE_KEY);
+  if (['fahad', 'wife'].includes(savedRole)) initRole(savedRole);
 })();

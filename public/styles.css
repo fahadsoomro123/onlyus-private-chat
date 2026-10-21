@@ -114,3 +114,17 @@ h1{font-size:42px;line-height:1.1;letter-spacing:-1.8px;margin:0;font-weight:800
  .message-row{max-width:88%}
 }
 @media(prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
+
+/* Optional, explicit laptop microphone sharing. */
+.listen-button{display:flex;align-items:center;gap:8px;border:1px solid #f5c1c1;border-radius:13px;background:#fff0f0;color:#a52424;font-weight:750;font-size:12px;padding:11px 15px}
+.listen-button:hover{background:#ffe3e3}
+.mic-permission{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:13px 24px;background:#fff8e9;border-bottom:1px solid #f4e5c4}
+.mic-permission-copy{display:flex;flex-direction:column;gap:5px;min-width:0}
+.mic-permission-copy strong{font-size:12px;color:#263247}
+.mic-permission-copy p{margin:0;font-size:11px;line-height:1.45;color:#657085}
+.mic-toggle{display:flex;align-items:center;gap:9px;flex-shrink:0;font-size:12px;font-weight:750;color:#263247;cursor:pointer}
+.mic-toggle input{width:18px;height:18px;accent-color:#c52d2d;cursor:pointer}
+.mic-active-status{display:flex;align-items:center;gap:10px;background:#fff0f0;color:#9a1919;border-bottom:1px solid #f3c5c5;padding:11px 24px;font-size:12px;letter-spacing:.01em}
+.mic-active-dot{width:9px;height:9px;border-radius:50%;background:#d51e32;box-shadow:0 0 0 4px rgba(213,30,50,.12);flex-shrink:0}
+#desktopMicPermission[hidden],#micActiveStatus[hidden],#listenButton[hidden]{display:none!important}
+@media(max-width:560px){.partner-card{flex-wrap:wrap;padding:15px}.partner-copy{min-width:95px}.call-button,.listen-button{padding:10px 12px}.mic-permission{align-items:flex-start;flex-direction:column;padding:13px 16px}.mic-active-status{padding:11px 16px}}

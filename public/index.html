@@ -50,6 +50,21 @@
         <div id="partnerAvatar" class="avatar avatar-pink">W</div>
         <div class="partner-copy"><strong id="partnerName">Wife</strong><span id="connectionStatus" class="connection-status"><i></i><span>Connecting…</span></span></div>
         <button id="callButton" class="call-button" type="button" aria-label="Start voice call"><span aria-hidden="true">☎</span><span>Call</span></button>
+        <button id="listenButton" class="listen-button" type="button" aria-label="Listen to laptop microphone" hidden><span aria-hidden="true">◖</span><span>Listen</span></button>
+      </div>
+      <section id="desktopMicPermission" class="mic-permission" hidden aria-labelledby="desktopMicTitle">
+        <div class="mic-permission-copy">
+          <strong id="desktopMicTitle">Laptop microphone access</strong>
+          <p id="desktopMicDescription">OFF. Your paired phone cannot listen to this laptop.</p>
+        </div>
+        <label class="mic-toggle" for="desktopMicToggle">
+          <input id="desktopMicToggle" type="checkbox">
+          <span>Allow phone to listen</span>
+        </label>
+      </section>
+      <div id="micActiveStatus" class="mic-active-status" role="status" aria-live="assertive" hidden>
+        <span class="mic-active-dot" aria-hidden="true"></span>
+        <strong id="micActiveText">MIC ACTIVE · Your paired phone is listening.</strong>
       </div>
       <div id="callPanel" class="call-panel" role="alert" aria-live="assertive" hidden>
         <div class="call-info"><div class="call-pulse">☎</div><div><strong id="callTitle">Incoming call</strong><p id="callDescription">Your partner is calling.</p></div></div>
